@@ -15,10 +15,16 @@ export async function extractTextFromPDF(file: File): Promise<string> {
         const page = await pdf.getPage(i);
         const textContent = await page.getTextContent();
         const pageText = textContent.items.map((item: any) => item.str).join(" ");
-        fullText += pageText + "\n\n";
+        fullText += pageText + " ";
     }
 
-    return fullText;
+    // Clean up text:
+    // 1. Join hyphenated words split across lines (e.g. "fa- ther" -> "father")
+    // 2. Collapse multiple spaces into single space
+    return fullText
+        .replace(/-\s+/g, "")
+        .replace(/\s+/g, " ")
+        .trim();
 }
 
 export async function getPDFMetadata(file: File): Promise<{ title?: string; author?: string }> {

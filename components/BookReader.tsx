@@ -2,9 +2,10 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Play, Pause, ArrowLeft, Sparkles, X, MessageSquare } from "lucide-react";
+import { Play, Pause, ArrowLeft, Sparkles, X, MessageSquare, Settings } from "lucide-react";
 import Link from "next/link";
 import ReviewPanel from "./ReviewPanel";
+import TTSControls, { VOICES } from "./TTSControls";
 
 interface BookData {
     title: string;
@@ -28,7 +29,13 @@ export default function BookReader({ bookId, initialBook }: BookReaderProps) {
     const [showReviews, setShowReviews] = useState(false);
     const [isLoading, setIsLoading] = useState(!initialBook);
 
-    const speechRef = useRef<SpeechSynthesisUtterance | null>(null);
+    // TTS State
+    const [voice, setVoice] = useState(VOICES[0].id);
+    const [rate, setRate] = useState(1.0);
+    const [volume, setVolume] = useState(1.0);
+    const [showSettings, setShowSettings] = useState(false);
+    const audioRef = useRef<HTMLAudioElement | null>(null);
+    const isPlayingRef = useRef(false);
 
     // Load from local storage if not provided initially
     useEffect(() => {
@@ -60,54 +67,109 @@ export default function BookReader({ bookId, initialBook }: BookReaderProps) {
         }
     }, [bookId, initialBook]);
 
-    // Handle TTS
+    // Audio Player Setup
     useEffect(() => {
-        if (typeof window !== "undefined" && book?.content) {
-            window.speechSynthesis.cancel(); // Cancel any previous speech
-            const utterance = new SpeechSynthesisUtterance(book.content);
-            utterance.rate = 0.9;
+        const audio = new Audio();
+        audioRef.current = audio;
+        audio.volume = volume;
 
-            utterance.onboundary = (event) => {
-                if (event.name === "sentence") {
-                    // Placeholder for karaoke sync
+        audio.onended = () => {
+            // Play next sentence
+            setActiveSentenceIndex(prev => {
+                if (prev === null) return 0;
+
+                let next = prev + 1;
+                // Skip empty or whitespace-only sentences
+                while (next < sentences.length && !sentences[next].trim()) {
+                    next++;
                 }
-            };
 
-            utterance.onend = () => setIsPlaying(false);
-            speechRef.current = utterance;
-        }
+                if (next < sentences.length && isPlayingRef.current) {
+                    playSentence(next);
+                    return next;
+                } else {
+                    setIsPlaying(false);
+                    isPlayingRef.current = false;
+                    return null;
+                }
+            });
+        };
 
         return () => {
-            if (typeof window !== "undefined") window.speechSynthesis.cancel();
+            audio.pause();
+            audio.src = "";
         };
-    }, [book]);
+    }, [sentences, voice, rate]);
+
+    // Update volume when it changes
+    useEffect(() => {
+        if (audioRef.current) {
+            audioRef.current.volume = volume;
+        }
+    }, [volume]);
+
+    const playSentence = async (index: number) => {
+        if (!sentences[index] || !audioRef.current) return;
+
+        try {
+            // Format rate for API (e.g. 1.0 -> "+0%", 1.5 -> "+50%")
+            const ratePercent = Math.round((rate - 1) * 100);
+            const rateStr = ratePercent >= 0 ? `+${ratePercent}%` : `${ratePercent}%`;
+
+            const response = await fetch("/api/tts", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    text: sentences[index],
+                    voice: voice,
+                    rate: rateStr
+                })
+            });
+
+            if (!response.ok) throw new Error("TTS Failed");
+
+            const blob = await response.blob();
+            const url = URL.createObjectURL(blob);
+
+            if (audioRef.current) {
+                audioRef.current.src = url;
+                audioRef.current.play();
+                setActiveSentenceIndex(index);
+            }
+        } catch (error) {
+            console.error("Playback error", error);
+            setIsPlaying(false);
+            isPlayingRef.current = false;
+        }
+    };
 
     const togglePlay = () => {
         if (isPlaying) {
-            window.speechSynthesis.pause();
+            audioRef.current?.pause();
             setIsPlaying(false);
+            isPlayingRef.current = false;
         } else {
-            if (window.speechSynthesis.paused) {
-                window.speechSynthesis.resume();
-            } else {
-                if (speechRef.current) {
-                    window.speechSynthesis.speak(speechRef.current);
-                }
-            }
             setIsPlaying(true);
+            isPlayingRef.current = true;
+            // Start from current index or 0
+            const startIndex = activeSentenceIndex !== null ? activeSentenceIndex : 0;
+            playSentence(startIndex);
         }
     };
 
     const handleSentenceClick = (index: number, text: string) => {
-        setActiveSentenceIndex(index);
-        setShowOverlay(true);
-        setIsExplaining(true);
+        if (isPlaying) {
+            playSentence(index);
+        } else {
+            setActiveSentenceIndex(index);
+            setShowOverlay(true);
+            setIsExplaining(true);
 
-        // Mock AI Explanation
-        setTimeout(() => {
-            setExplanation(`Here is an explanation for: "${text.substring(0, 30)}..." \n\nThis sentence sets the tone for the narrative, establishing a reflective mood. The author uses this to foreshadow the themes of judgment and class that permeate the novel.`);
-            setIsExplaining(false);
-        }, 1500);
+            setTimeout(() => {
+                setExplanation(`Here is an explanation for: "${text.substring(0, 30)}..." \n\nThis sentence sets the tone for the narrative, establishing a reflective mood. The author uses this to foreshadow the themes of judgment and class that permeate the novel.`);
+                setIsExplaining(false);
+            }, 1500);
+        }
     };
 
     if (isLoading) {
@@ -160,7 +222,25 @@ export default function BookReader({ bookId, initialBook }: BookReaderProps) {
                     <h1 className="text-sm font-bold tracking-wide uppercase opacity-80 truncate max-w-xs">{book.title}</h1>
                     <p className="text-xs opacity-50 truncate max-w-xs">{book.author}</p>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 relative">
+                    <button
+                        onClick={() => setShowSettings(!showSettings)}
+                        className={`p-2 hover:bg-black/5 rounded-full transition-colors ${showSettings ? "bg-black/5" : ""}`}
+                    >
+                        <Settings className="w-5 h-5 opacity-60" />
+                    </button>
+
+                    <TTSControls
+                        isOpen={showSettings}
+                        onClose={() => setShowSettings(false)}
+                        voice={voice}
+                        setVoice={setVoice}
+                        rate={rate}
+                        setRate={setRate}
+                        volume={volume}
+                        setVolume={setVolume}
+                    />
+
                     <button
                         onClick={() => setShowReviews(true)}
                         className="p-2 hover:bg-black/5 rounded-full transition-colors"
