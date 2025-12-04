@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { spawn } from 'child_process';
+import { exec } from 'child_process';
+import { promisify } from 'util';
 import path from 'path';
-import fs from 'fs';
+import fs from 'fs/promises';
 import os from 'os';
+
+const execAsync = promisify(exec);
 
 export async function POST(req: NextRequest) {
     try {
@@ -16,57 +19,44 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ error: 'Text is required' }, { status: 400 });
         }
 
-        const tempFile = path.join(os.tmpdir(), `tts-${Date.now()}-${Math.random()}.mp3`);
+        const timestamp = Date.now();
+        const random = Math.random();
+        const tempAudioFile = path.join(os.tmpdir(), `tts-${timestamp}-${random}.mp3`);
+
         const rateArg = rate || '+0%';
         const voiceArg = voice || 'en-US-AriaNeural';
 
-        console.log(`[TTS API] Spawning edge-tts with tempFile: ${tempFile}`);
+        console.log(`[TTS API] Generating audio with word marks...`);
 
-        // Fallback to simple spawn if complex script fails or for reliability
-        // We will just generate audio and return empty marks for now to restore playback
+        // Use our custom Python script that extracts word-level marks
+        const scriptPath = path.join(process.cwd(), 'scripts', 'tts_with_marks.py');
+        const command = `/usr/bin/python3 "${scriptPath}" "${text.replace(/"/g, '\\"')}" "${voiceArg}" "${rateArg}" "${tempAudioFile}"`;
 
-        const pythonProcess = spawn('python3', [
-            '-m', 'edge_tts',
-            '--text', text,
-            '--write-media', tempFile,
-            '--voice', voiceArg,
-            '--rate', rateArg
-        ]);
+        const { stdout, stderr } = await execAsync(command, { maxBuffer: 1024 * 1024 * 10 });
 
-        await new Promise<void>((resolve, reject) => {
-            let stderr = '';
-            pythonProcess.stderr.on('data', (data) => {
-                stderr += data.toString();
-            });
+        // Read audio file
+        const audioBuffer = await fs.readFile(tempAudioFile);
 
-            pythonProcess.on('close', (code) => {
-                if (code === 0) {
-                    console.log(`[TTS API] Process finished successfully.`);
-                    resolve();
-                } else {
-                    console.error(`[TTS API] Process failed with code ${code}. Stderr: ${stderr}`);
-                    reject(new Error(`Edge TTS process exited with code ${code}: ${stderr}`));
-                }
-            });
-            pythonProcess.on('error', (err) => {
-                console.error(`[TTS API] Process spawn error:`, err);
-                reject(err);
-            });
-        });
-
-        if (!fs.existsSync(tempFile)) {
-            throw new Error("Output file was not created");
+        // Parse marks from stdout (JSON format)
+        let marks: any[] = [];
+        try {
+            if (stdout.trim()) {
+                marks = JSON.parse(stdout.trim());
+                console.log(`[TTS API] Extracted ${marks.length} word marks`);
+            }
+        } catch (e) {
+            console.warn('[TTS API] Could not parse marks from Python script:', e);
+            console.warn('[TTS API] stdout:', stdout);
+            console.warn('[TTS API] stderr:', stderr);
         }
 
-        const stats = fs.statSync(tempFile);
-        console.log(`[TTS API] Audio file created. Size: ${stats.size} bytes`);
+        // Cleanup temp files
+        await fs.unlink(tempAudioFile).catch(() => { });
 
-        const audioBuffer = fs.readFileSync(tempFile);
-        fs.unlinkSync(tempFile);
 
         return NextResponse.json({
             audio: audioBuffer.toString('base64'),
-            marks: [] // Empty marks for now to ensure audio works
+            marks: marks
         });
 
     } catch (error: any) {

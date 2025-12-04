@@ -6,6 +6,7 @@ import { Play, Pause, ArrowLeft, Sparkles, X, MessageSquare, Settings, Maximize2
 import Link from "next/link";
 import ReviewPanel from "./ReviewPanel";
 import TTSControls, { VOICES } from "./TTSControls";
+import { getBookFromDB } from "@/lib/db";
 
 interface BookData {
     title: string;
@@ -54,23 +55,39 @@ export default function BookReader({ bookId, initialBook }: BookReaderProps) {
     const isPlayingRef = useRef(false);
     const currentRequestRef = useRef<AbortController | null>(null);
 
-    // Load from local storage if not provided initially
+    // Load from IndexedDB if not provided initially
     useEffect(() => {
         console.log("BookReader mounted with ID:", bookId);
         if (!initialBook) {
             setIsLoading(true);
-            const storedBook = localStorage.getItem(`book-${bookId}`);
 
-            if (storedBook) {
+            const loadBook = async () => {
                 try {
-                    const parsedBook = JSON.parse(storedBook);
-                    setBook(parsedBook);
-                    processBookContent(parsedBook);
+                    // Try loading from IndexedDB first (new way)
+                    let storedBook = await getBookFromDB(bookId);
+
+                    // Fallback to localStorage for migration (optional, but good for safety)
+                    if (!storedBook) {
+                        const localData = localStorage.getItem(`book-${bookId}`);
+                        if (localData) {
+                            storedBook = JSON.parse(localData);
+                            // Optionally migrate to DB here?
+                        }
+                    }
+
+                    if (storedBook) {
+                        setBook(storedBook);
+                        processBookContent(storedBook);
+                    } else {
+                        console.error("Book not found in DB or localStorage");
+                    }
                 } catch (e) {
-                    console.error("Failed to parse book from localStorage", e);
+                    console.error("Failed to load book", e);
+                } finally {
+                    setIsLoading(false);
                 }
-            }
-            setIsLoading(false);
+            };
+            loadBook();
         } else {
             processBookContent(initialBook);
             setIsLoading(false);
@@ -78,29 +95,42 @@ export default function BookReader({ bookId, initialBook }: BookReaderProps) {
     }, [bookId, initialBook]);
 
     const processBookContent = (bookData: BookData) => {
-        const segmenter = new Intl.Segmenter("en", { granularity: "sentence" });
         const allSentences: Sentence[] = [];
+        const segmenter = new Intl.Segmenter("en", { granularity: "sentence" });
+
+        const processText = (text: string, pageIndex: number) => {
+            // Clean text first
+            const cleanText = text.replace(/\s+/g, " ").trim();
+            if (!cleanText) return;
+
+            // Use Intl.Segmenter which is generally good at handling abbreviations like "Mr."
+            const segments = segmenter.segment(cleanText);
+
+            for (const seg of segments) {
+                const s = seg.segment.trim();
+                if (s.length > 0) {
+                    allSentences.push({
+                        text: s,
+                        pageIndex
+                    });
+                }
+            }
+        };
 
         if (bookData.pages && bookData.pages.length > 0) {
-            bookData.pages.forEach((page, pageIndex) => {
-                const segments = Array.from(segmenter.segment(page)).map(s => ({
-                    text: s.segment,
-                    pageIndex
-                }));
-                allSentences.push(...segments);
-            });
+            bookData.pages.forEach((page, index) => processText(page, index));
         } else if (bookData.content) {
-            const segments = Array.from(segmenter.segment(bookData.content)).map(s => ({
-                text: s.segment,
-                pageIndex: 0
-            }));
-            allSentences.push(...segments);
+            processText(bookData.content, 0);
         }
+
         setSentences(allSentences);
     };
 
     const sentencesRef = useRef(sentences);
     const wordMarksRef = useRef(wordMarks);
+    // Keep track of the actual audio element's current sentence index to avoid state desync
+    const playbackIndexRef = useRef<number>(-1);
+    const playSentenceRef = useRef<((index: number) => Promise<void>) | null>(null);
 
     useEffect(() => {
         sentencesRef.current = sentences;
@@ -110,51 +140,85 @@ export default function BookReader({ bookId, initialBook }: BookReaderProps) {
         wordMarksRef.current = wordMarks;
     }, [wordMarks]);
 
-    const playSentenceRef = useRef<((index: number) => Promise<void>) | null>(null);
-
     // Initialize Audio once
     useEffect(() => {
         const audio = new Audio();
         audioRef.current = audio;
 
         // Handle audio ending
-        const handleEnded = () => {
-            setActiveSentenceIndex(prev => {
-                if (prev === null) return 0;
+        const handleEnded = async () => {
+            const currentIndex = playbackIndexRef.current;
+            const nextIndex = currentIndex + 1;
+            const currentSentences = sentencesRef.current;
 
-                let next = prev + 1;
-                const currentSentences = sentencesRef.current;
+            if (nextIndex < currentSentences.length && isPlayingRef.current) {
+                // Seamless transition: Check cache first
+                const cachedUrl = audioCacheRef.current.get(nextIndex);
+                const cachedMarks = marksCacheRef.current.get(nextIndex);
 
-                // Skip empty or whitespace-only sentences
-                while (next < currentSentences.length && !currentSentences[next]?.text?.trim()) {
-                    next++;
-                }
+                if (cachedUrl) {
+                    // Play immediately
+                    audio.src = cachedUrl;
 
-                if (next < currentSentences.length && isPlayingRef.current) {
-                    if (playSentenceRef.current) {
-                        playSentenceRef.current(next);
+                    // Synchronously update marks ref BEFORE playing
+                    const marksToUse = cachedMarks || [];
+                    currentMarksRef.current = marksToUse;
+
+                    // Update State (eventually consistent)
+                    if (cachedMarks) {
+                        setWordMarks(cachedMarks);
+                    } else {
+                        setWordMarks([]);
+                        // Fallback generation for seamless path
+                        audio.onloadedmetadata = () => {
+                            if (!audio.duration) return;
+                            const duration = audio.duration * 10000000;
+                            const text = currentSentences[nextIndex].text;
+                            const words = text.split(/\s+/);
+                            const totalChars = text.length;
+                            const ticksPerChar = duration / totalChars;
+                            let currentOffset = 0;
+                            const estimatedMarks: WordMark[] = [];
+                            words.forEach(word => {
+                                const wordDuration = word.length * ticksPerChar;
+                                estimatedMarks.push({ text: word, offset: currentOffset, duration: wordDuration });
+                                currentOffset += wordDuration + (1 * ticksPerChar);
+                            });
+                            currentMarksRef.current = estimatedMarks;
+                            setWordMarks(estimatedMarks);
+                            audio.onloadedmetadata = null;
+                        };
                     }
-                    return next;
+
+                    audio.play().catch(e => console.error("Seamless play failed", e));
+
+                    playbackIndexRef.current = nextIndex;
+                    setActiveSentenceIndex(nextIndex);
+                    setCurrentWordIndex(-1);
                 } else {
-                    setIsPlaying(false);
-                    isPlayingRef.current = false;
-                    return null;
+                    // Not in cache? Fallback to standard play (will incur delay)
+                    // Use ref to avoid stale closure
+                    if (playSentenceRef.current) {
+                        playSentenceRef.current(nextIndex);
+                    }
                 }
-            });
+            } else {
+                setIsPlaying(false);
+                isPlayingRef.current = false;
+                playbackIndexRef.current = -1;
+            }
         };
 
         const handleTimeUpdate = () => {
             if (!audioRef.current) return;
 
-            const currentMarks = wordMarksRef.current;
-            if (currentMarks.length === 0) return;
+            // Use the synchronous ref for marks to avoid desync
+            const currentMarks = currentMarksRef.current;
+            if (!currentMarks || currentMarks.length === 0) return;
 
-            // Convert currentTime to 100ns units (ticks) used by edge-tts
-            // 1 second = 10,000,000 ticks
+            // Convert currentTime to 100ns units (ticks)
             const currentTicks = audioRef.current.currentTime * 10000000;
 
-            // Find the current word based on offset
-            // Marks are sorted by offset
             let activeIndex = -1;
             for (let i = 0; i < currentMarks.length; i++) {
                 if (currentTicks >= currentMarks[i].offset) {
@@ -198,17 +262,33 @@ export default function BookReader({ bookId, initialBook }: BookReaderProps) {
         }
     }, [activeSentenceIndex, sentences]);
 
-    const playSentence = async (index: number) => {
-        if (!sentences[index] || !audioRef.current) return;
+    // Cache for audio URLs AND Marks
+    const audioCacheRef = useRef<Map<number, string>>(new Map());
+    const marksCacheRef = useRef<Map<number, any[]>>(new Map());
+    // Ref to hold the current marks synchronously for the audio loop
+    const currentMarksRef = useRef<WordMark[]>([]);
 
-        // Cancel any pending TTS request
-        if (currentRequestRef.current) {
-            currentRequestRef.current.abort();
+    // Manage Buffer: Ensure next 3 sentences are cached
+    const manageBuffer = async (currentIndex: number) => {
+        const BUFFER_SIZE = 3;
+
+        for (let i = 1; i <= BUFFER_SIZE; i++) {
+            const targetIndex = currentIndex + i;
+            if (targetIndex >= sentences.length) break;
+
+            // If already cached or currently fetching (we could track promises, but simple check is ok)
+            if (audioCacheRef.current.has(targetIndex)) continue;
+
+            const text = sentences[targetIndex].text;
+            if (!text.trim()) continue;
+
+            // Fire and forget (don't await in loop to do them in parallel-ish)
+            fetchTTS(targetIndex, text).catch(e => console.error("Buffer failed for", targetIndex, e));
         }
+    };
 
-        // Create new AbortController for this request
-        const controller = new AbortController();
-        currentRequestRef.current = controller;
+    const fetchTTS = async (index: number, text: string) => {
+        if (audioCacheRef.current.has(index)) return;
 
         try {
             const ratePercent = Math.round((rate - 1) * 100);
@@ -218,84 +298,122 @@ export default function BookReader({ bookId, initialBook }: BookReaderProps) {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
-                    text: sentences[index].text,
+                    text: text,
                     voice: voice,
                     rate: rateStr
-                }),
-                signal: controller.signal
+                })
             });
 
-            if (!response.ok) throw new Error("TTS Failed");
+            if (response.ok) {
+                const data = await response.json();
+                const audioBytes = Uint8Array.from(atob(data.audio), c => c.charCodeAt(0));
+                const blob = new Blob([audioBytes], { type: 'audio/mpeg' });
+                const url = URL.createObjectURL(blob);
 
-            const data = await response.json();
-            console.log("TTS Response received. Audio length:", data.audio?.length, "Marks:", data.marks?.length);
+                audioCacheRef.current.set(index, url);
+                if (data.marks) {
+                    marksCacheRef.current.set(index, data.marks);
+                }
+            }
+        } catch (e) {
+            console.error("Fetch TTS failed", e);
+        }
+    };
 
-            // Decode base64 audio
-            const audioBytes = Uint8Array.from(atob(data.audio), c => c.charCodeAt(0));
-            const blob = new Blob([audioBytes], { type: 'audio/mpeg' });
-            const url = URL.createObjectURL(blob);
+    // Watch active index to maintain buffer
+    useEffect(() => {
+        if (activeSentenceIndex !== null) {
+            manageBuffer(activeSentenceIndex);
+        }
+    }, [activeSentenceIndex, sentences]);
+
+    const playSentence = async (index: number) => {
+        if (!sentences[index] || !audioRef.current) return;
+
+        // Cancel any pending TTS request (for the *current* play attempt, not background fetches)
+        if (currentRequestRef.current) {
+            currentRequestRef.current.abort();
+        }
+
+        const controller = new AbortController();
+        currentRequestRef.current = controller;
+
+        try {
+            let url = audioCacheRef.current.get(index);
+            let marks = marksCacheRef.current.get(index) || [];
+
+            if (!url) {
+                // Not in cache? Fetch immediately with signal
+                const ratePercent = Math.round((rate - 1) * 100);
+                const rateStr = ratePercent >= 0 ? `+${ratePercent}%` : `${ratePercent}%`;
+
+                const response = await fetch("/api/tts", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        text: sentences[index].text,
+                        voice: voice,
+                        rate: rateStr
+                    }),
+                    signal: controller.signal
+                });
+
+                if (!response.ok) throw new Error("TTS Failed");
+
+                const data = await response.json();
+                const audioBytes = Uint8Array.from(atob(data.audio), c => c.charCodeAt(0));
+                const blob = new Blob([audioBytes], { type: 'audio/mpeg' });
+                url = URL.createObjectURL(blob);
+                marks = data.marks || [];
+
+                // Cache it
+                audioCacheRef.current.set(index, url);
+                marksCacheRef.current.set(index, marks);
+            }
 
             if (audioRef.current) {
-                audioRef.current.pause();
-                audioRef.current.src = url;
+                // If we are already playing this URL, don't restart (unless forced?)
+                // But usually playSentence is called to START.
+                audioRef.current.pause(); // Pause current playback if any
+                audioRef.current.src = url!;
 
-                // Set word marks for highlighting
-                let marks = data.marks || [];
+                // Synchronously update marks ref for the audio loop
+                currentMarksRef.current = marks;
+                setWordMarks(marks);
 
-                // Fallback: Generate estimated marks if none provided
+                // Fallback logic for marks (if missing)
                 if (marks.length === 0 && sentences[index].text) {
-                    // We need audio duration to estimate, but we don't have it yet.
-                    // We'll generate them on 'loadedmetadata' event or just-in-time.
-                    // For now, let's attach a listener to generate them once duration is known.
-                    const generateFallbackMarks = () => {
+                    audioRef.current.onloadedmetadata = () => {
                         if (!audioRef.current || !audioRef.current.duration) return;
-                        const duration = audioRef.current.duration * 10000000; // to ticks
+                        const duration = audioRef.current.duration * 10000000;
                         const text = sentences[index].text;
                         const words = text.split(/\s+/);
                         const totalChars = text.length;
                         const ticksPerChar = duration / totalChars;
-
                         let currentOffset = 0;
                         const estimatedMarks: WordMark[] = [];
-
-                        let charIndex = 0;
                         words.forEach(word => {
-                            // Find word in text to get exact length including punctuation if needed
-                            // But simple split is okay for estimation
-                            const wordLen = word.length;
-                            const wordDuration = wordLen * ticksPerChar;
-
-                            estimatedMarks.push({
-                                text: word,
-                                offset: currentOffset,
-                                duration: wordDuration
-                            });
-
-                            currentOffset += wordDuration + (1 * ticksPerChar); // +1 for space
-                            charIndex += wordLen + 1;
+                            const wordDuration = word.length * ticksPerChar;
+                            estimatedMarks.push({ text: word, offset: currentOffset, duration: wordDuration });
+                            currentOffset += wordDuration + (1 * ticksPerChar);
                         });
 
+                        // Update both ref and state
+                        currentMarksRef.current = estimatedMarks;
                         setWordMarks(estimatedMarks);
                     };
-
-                    audioRef.current.onloadedmetadata = generateFallbackMarks;
                 } else {
-                    setWordMarks(marks);
                     audioRef.current.onloadedmetadata = null;
                 }
 
                 setCurrentWordIndex(-1);
 
-                const playPromise = audioRef.current.play();
-                if (playPromise !== undefined) {
-                    playPromise.catch(error => {
-                        if (error.name !== 'AbortError') {
-                            console.error('Playback failed:', error);
-                        }
-                    });
-                }
-
+                // Update refs
+                playbackIndexRef.current = index;
                 setActiveSentenceIndex(index);
+
+                await audioRef.current.play();
+                // Buffer management is handled by useEffect now
             }
         } catch (error: any) {
             if (error.name !== 'AbortError') {
@@ -368,11 +486,34 @@ export default function BookReader({ bookId, initialBook }: BookReaderProps) {
 
     // Immersive Mode Renderer
     const renderImmersiveView = () => {
-        if (!activeSentenceIndex || !sentences[activeSentenceIndex]) return null;
+        // Use playbackIndexRef for the source of truth during playback to ensure sync
+        // Fallback to activeSentenceIndex if not playing or paused
+        const indexToShow = isPlayingRef.current && playbackIndexRef.current !== -1
+            ? playbackIndexRef.current
+            : activeSentenceIndex;
 
-        // Use wordMarks if available, otherwise fallback to simple split (though marks should be there if playing)
-        // If not playing or no marks yet, show full text
-        const wordsToRender = wordMarks.length > 0 ? wordMarks : sentences[activeSentenceIndex].text.split(" ").map(t => ({ text: t }));
+        if (indexToShow === null || !sentences[indexToShow]) return null;
+
+        const targetText = sentences[indexToShow].text;
+
+        // Safety Check: Ensure wordMarks actually belong to the sentence we are trying to show.
+        // If wordMarks are stale (from previous sentence), we shouldn't use them.
+        // We do a rough check by comparing the first few characters or length.
+        let wordsToRender = wordMarks;
+
+        // Reconstruct text from marks to compare (simplified check)
+        const marksText = wordMarks.map(m => m.text).join("").replace(/\s/g, "");
+        const sentenceTextClean = targetText.replace(/\s/g, "");
+
+        // If mismatch (or empty), fallback to simple split of the CURRENT sentence
+        // This ensures we NEVER show the wrong text, even if highlighting is missing/loading
+        if (wordMarks.length === 0 || Math.abs(marksText.length - sentenceTextClean.length) > 5) {
+            wordsToRender = targetText.split(/\s+/).filter(t => t).map(t => ({
+                text: t,
+                offset: 0,
+                duration: 0
+            }));
+        }
 
         return (
             <div className="fixed inset-0 bg-[#fdfbf7] z-40 flex flex-col items-center justify-center p-8 text-center">
