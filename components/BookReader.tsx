@@ -11,6 +11,7 @@ interface BookData {
     title: string;
     author: string;
     content: string;
+    pages?: string[];
 }
 
 interface BookReaderProps {
@@ -18,9 +19,14 @@ interface BookReaderProps {
     initialBook: BookData | null;
 }
 
+interface Sentence {
+    text: string;
+    pageIndex: number;
+}
+
 export default function BookReader({ bookId, initialBook }: BookReaderProps) {
     const [book, setBook] = useState<BookData | null>(initialBook);
-    const [sentences, setSentences] = useState<string[]>([]);
+    const [sentences, setSentences] = useState<Sentence[]>([]);
     const [activeSentenceIndex, setActiveSentenceIndex] = useState<number | null>(null);
     const [isPlaying, setIsPlaying] = useState(false);
     const [showOverlay, setShowOverlay] = useState(false);
@@ -28,6 +34,7 @@ export default function BookReader({ bookId, initialBook }: BookReaderProps) {
     const [isExplaining, setIsExplaining] = useState(false);
     const [showReviews, setShowReviews] = useState(false);
     const [isLoading, setIsLoading] = useState(!initialBook);
+    const [currentPage, setCurrentPage] = useState(0);
 
     // TTS State
     const [voice, setVoice] = useState(VOICES[0].id);
@@ -36,6 +43,7 @@ export default function BookReader({ bookId, initialBook }: BookReaderProps) {
     const [showSettings, setShowSettings] = useState(false);
     const audioRef = useRef<HTMLAudioElement | null>(null);
     const isPlayingRef = useRef(false);
+    const currentRequestRef = useRef<AbortController | null>(null);
 
     // Load from local storage if not provided initially
     useEffect(() => {
@@ -43,44 +51,58 @@ export default function BookReader({ bookId, initialBook }: BookReaderProps) {
         if (!initialBook) {
             setIsLoading(true);
             const storedBook = localStorage.getItem(`book-${bookId}`);
-            console.log("Found in localStorage:", storedBook ? "Yes" : "No");
 
             if (storedBook) {
                 try {
                     const parsedBook = JSON.parse(storedBook);
                     setBook(parsedBook);
-                    if (parsedBook?.content) {
-                        const segmenter = new Intl.Segmenter("en", { granularity: "sentence" });
-                        const segments = Array.from(segmenter.segment(parsedBook.content)).map(s => s.segment);
-                        setSentences(segments);
-                    }
+                    processBookContent(parsedBook);
                 } catch (e) {
                     console.error("Failed to parse book from localStorage", e);
                 }
             }
             setIsLoading(false);
-        } else if (initialBook?.content) {
-            const segmenter = new Intl.Segmenter("en", { granularity: "sentence" });
-            const segments = Array.from(segmenter.segment(initialBook.content)).map(s => s.segment);
-            setSentences(segments);
+        } else {
+            processBookContent(initialBook);
             setIsLoading(false);
         }
     }, [bookId, initialBook]);
 
-    // Audio Player Setup
+    const processBookContent = (bookData: BookData) => {
+        const segmenter = new Intl.Segmenter("en", { granularity: "sentence" });
+        const allSentences: Sentence[] = [];
+
+        if (bookData.pages && bookData.pages.length > 0) {
+            bookData.pages.forEach((page, pageIndex) => {
+                const segments = Array.from(segmenter.segment(page)).map(s => ({
+                    text: s.segment,
+                    pageIndex
+                }));
+                allSentences.push(...segments);
+            });
+        } else if (bookData.content) {
+            const segments = Array.from(segmenter.segment(bookData.content)).map(s => ({
+                text: s.segment,
+                pageIndex: 0
+            }));
+            allSentences.push(...segments);
+        }
+        setSentences(allSentences);
+    };
+
+    // Initialize Audio once
     useEffect(() => {
         const audio = new Audio();
         audioRef.current = audio;
-        audio.volume = volume;
 
-        audio.onended = () => {
-            // Play next sentence
+        // Handle audio ending
+        const handleEnded = () => {
             setActiveSentenceIndex(prev => {
                 if (prev === null) return 0;
 
                 let next = prev + 1;
                 // Skip empty or whitespace-only sentences
-                while (next < sentences.length && !sentences[next].trim()) {
+                while (next < sentences.length && !sentences[next]?.text?.trim()) {
                     next++;
                 }
 
@@ -95,11 +117,14 @@ export default function BookReader({ bookId, initialBook }: BookReaderProps) {
             });
         };
 
+        audio.addEventListener('ended', handleEnded);
+
         return () => {
+            audio.removeEventListener('ended', handleEnded);
             audio.pause();
             audio.src = "";
         };
-    }, [sentences, voice, rate]);
+    }, [sentences]);
 
     // Update volume when it changes
     useEffect(() => {
@@ -108,11 +133,29 @@ export default function BookReader({ bookId, initialBook }: BookReaderProps) {
         }
     }, [volume]);
 
+    // Auto-turn page if playback moves to next page
+    useEffect(() => {
+        if (activeSentenceIndex !== null && sentences[activeSentenceIndex]) {
+            const sentencePage = sentences[activeSentenceIndex].pageIndex;
+            if (sentencePage !== currentPage) {
+                setCurrentPage(sentencePage);
+            }
+        }
+    }, [activeSentenceIndex, sentences]);
+
     const playSentence = async (index: number) => {
         if (!sentences[index] || !audioRef.current) return;
 
+        // Cancel any pending TTS request
+        if (currentRequestRef.current) {
+            currentRequestRef.current.abort();
+        }
+
+        // Create new AbortController for this request
+        const controller = new AbortController();
+        currentRequestRef.current = controller;
+
         try {
-            // Format rate for API (e.g. 1.0 -> "+0%", 1.5 -> "+50%")
             const ratePercent = Math.round((rate - 1) * 100);
             const rateStr = ratePercent >= 0 ? `+${ratePercent}%` : `${ratePercent}%`;
 
@@ -120,10 +163,11 @@ export default function BookReader({ bookId, initialBook }: BookReaderProps) {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
-                    text: sentences[index],
+                    text: sentences[index].text,
                     voice: voice,
                     rate: rateStr
-                })
+                }),
+                signal: controller.signal
             });
 
             if (!response.ok) throw new Error("TTS Failed");
@@ -132,14 +176,30 @@ export default function BookReader({ bookId, initialBook }: BookReaderProps) {
             const url = URL.createObjectURL(blob);
 
             if (audioRef.current) {
+                audioRef.current.pause();
                 audioRef.current.src = url;
-                audioRef.current.play();
+
+                const playPromise = audioRef.current.play();
+                if (playPromise !== undefined) {
+                    playPromise.catch(error => {
+                        if (error.name !== 'AbortError') {
+                            console.error('Playback failed:', error);
+                        }
+                    });
+                }
+
                 setActiveSentenceIndex(index);
             }
-        } catch (error) {
-            console.error("Playback error", error);
-            setIsPlaying(false);
-            isPlayingRef.current = false;
+        } catch (error: any) {
+            if (error.name !== 'AbortError') {
+                console.error("Playback error", error);
+                setIsPlaying(false);
+                isPlayingRef.current = false;
+            }
+        } finally {
+            if (currentRequestRef.current === controller) {
+                currentRequestRef.current = null;
+            }
         }
     };
 
@@ -151,7 +211,6 @@ export default function BookReader({ bookId, initialBook }: BookReaderProps) {
         } else {
             setIsPlaying(true);
             isPlayingRef.current = true;
-            // Start from current index or 0
             const startIndex = activeSentenceIndex !== null ? activeSentenceIndex : 0;
             playSentence(startIndex);
         }
@@ -169,6 +228,29 @@ export default function BookReader({ bookId, initialBook }: BookReaderProps) {
                 setExplanation(`Here is an explanation for: "${text.substring(0, 30)}..." \n\nThis sentence sets the tone for the narrative, establishing a reflective mood. The author uses this to foreshadow the themes of judgment and class that permeate the novel.`);
                 setIsExplaining(false);
             }, 1500);
+        }
+    };
+
+    const getCurrentPageSentences = () => {
+        if (!book?.pages) return sentences;
+        return sentences.filter(s => s.pageIndex === currentPage);
+    };
+
+    const handleNextPage = () => {
+        if (book?.pages && currentPage < book.pages.length - 1) {
+            setCurrentPage(prev => prev + 1);
+            setIsPlaying(false);
+            isPlayingRef.current = false;
+            audioRef.current?.pause();
+        }
+    };
+
+    const handlePrevPage = () => {
+        if (currentPage > 0) {
+            setCurrentPage(prev => prev - 1);
+            setIsPlaying(false);
+            isPlayingRef.current = false;
+            audioRef.current?.pause();
         }
     };
 
@@ -258,19 +340,45 @@ export default function BookReader({ bookId, initialBook }: BookReaderProps) {
 
             {/* Content Area */}
             <div className="max-w-2xl mx-auto pt-32 pb-32 px-8 leading-loose text-lg md:text-xl">
-                {sentences.map((sentence, index) => (
-                    <span
-                        key={index}
-                        onClick={() => handleSentenceClick(index, sentence)}
-                        className={`
-              cursor-pointer transition-colors duration-200 rounded px-1
-              ${activeSentenceIndex === index ? "bg-yellow-200/50" : "hover:bg-black/5"}
-            `}
-                    >
-                        {sentence}
-                    </span>
-                ))}
+                {getCurrentPageSentences().map((sentence, localIndex) => {
+                    const globalIndex = sentences.indexOf(sentence);
+                    return (
+                        <span
+                            key={globalIndex}
+                            onClick={() => handleSentenceClick(globalIndex, sentence.text)}
+                            className={`
+                                cursor-pointer transition-colors duration-200 rounded px-1
+                                ${activeSentenceIndex === globalIndex ? "bg-yellow-200/50" : "hover:bg-black/5"}
+                            `}
+                        >
+                            {sentence.text}
+                        </span>
+                    );
+                })}
             </div>
+
+            {/* Page Navigation */}
+            {book?.pages && (
+                <div className="fixed bottom-8 left-0 right-0 flex justify-center items-center gap-8 z-20">
+                    <button
+                        onClick={handlePrevPage}
+                        disabled={currentPage === 0}
+                        className="p-3 rounded-full bg-white shadow-lg disabled:opacity-30 hover:bg-gray-50 transition-all"
+                    >
+                        <ArrowLeft className="w-5 h-5" />
+                    </button>
+                    <span className="font-sans text-sm font-medium opacity-60">
+                        Page {currentPage + 1} of {book.pages.length}
+                    </span>
+                    <button
+                        onClick={handleNextPage}
+                        disabled={currentPage === (book.pages.length - 1)}
+                        className="p-3 rounded-full bg-white shadow-lg disabled:opacity-30 hover:bg-gray-50 transition-all"
+                    >
+                        <ArrowLeft className="w-5 h-5 rotate-180" />
+                    </button>
+                </div>
+            )}
 
             {/* Reviews Panel */}
             <ReviewPanel isOpen={showReviews} onClose={() => setShowReviews(false)} />

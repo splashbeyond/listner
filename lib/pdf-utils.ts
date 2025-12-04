@@ -1,4 +1,9 @@
-export async function extractTextFromPDF(file: File): Promise<string> {
+export interface PDFContent {
+    pages: string[];
+    fullText: string;
+}
+
+export async function extractTextFromPDF(file: File): Promise<PDFContent> {
     // Dynamically import pdfjs-dist to avoid SSR issues
     const pdfjsLib = await import("pdfjs-dist");
 
@@ -9,22 +14,28 @@ export async function extractTextFromPDF(file: File): Promise<string> {
 
     const arrayBuffer = await file.arrayBuffer();
     const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-    let fullText = "";
+    const pages: string[] = [];
 
     for (let i = 1; i <= pdf.numPages; i++) {
         const page = await pdf.getPage(i);
         const textContent = await page.getTextContent();
-        const pageText = textContent.items.map((item: any) => item.str).join(" ");
-        fullText += pageText + " ";
+        let pageText = textContent.items.map((item: any) => item.str).join(" ");
+
+        // Clean up text per page:
+        // 1. Join hyphenated words (e.g. "fa- ther" -> "father")
+        // 2. Collapse multiple spaces
+        pageText = pageText
+            .replace(/-\s+/g, "")
+            .replace(/\s+/g, " ")
+            .trim();
+
+        pages.push(pageText);
     }
 
-    // Clean up text:
-    // 1. Join hyphenated words split across lines (e.g. "fa- ther" -> "father")
-    // 2. Collapse multiple spaces into single space
-    return fullText
-        .replace(/-\s+/g, "")
-        .replace(/\s+/g, " ")
-        .trim();
+    return {
+        pages,
+        fullText: pages.join("\n\n")
+    };
 }
 
 export async function getPDFMetadata(file: File): Promise<{ title?: string; author?: string }> {

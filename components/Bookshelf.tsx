@@ -35,13 +35,15 @@ export default function Bookshelf() {
         setIsUploading(true);
         try {
             // Parallelize operations for speed
-            const [text, metadata, coverImage] = await Promise.all([
+            const [pdfContent, metadata, coverImage] = await Promise.all([
                 extractTextFromPDF(file),
                 getPDFMetadata(file),
                 renderPDFCover(file).catch(() => null) // Fail gracefully on cover
             ]);
 
-            if (!text || text.trim().length === 0) {
+            const { pages, fullText } = pdfContent;
+
+            if (!fullText || fullText.trim().length === 0) {
                 throw new Error("No text found in PDF. It might be a scanned image.");
             }
 
@@ -51,16 +53,19 @@ export default function Bookshelf() {
                 author: metadata.author || "Unknown Author",
                 coverColor: "bg-gray-200",
                 coverImage: coverImage, // Store data URL
-                content: text,
+                content: fullText,
+                pages: pages,
                 isCustom: true
             };
 
-            // Save metadata to list
-            const bookForList = { ...newBook, content: undefined };
             const existingCustom = JSON.parse(localStorage.getItem("customBooks") || "[]");
-            localStorage.setItem("customBooks", JSON.stringify([...existingCustom, bookForList]));
+            // Save metadata to list (exclude heavy content)
+            localStorage.setItem("customBooks", JSON.stringify([...existingCustom, { ...newBook, content: undefined, pages: undefined }]));
+            // Save full book data
             localStorage.setItem(`book-${newBook.id}`, JSON.stringify(newBook));
 
+            // Update local state
+            const bookForList = { ...newBook, content: undefined, pages: undefined };
             setBooks(prev => [...prev, bookForList]);
         } catch (error) {
             console.error("Failed to parse PDF", error);
