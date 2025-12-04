@@ -381,6 +381,11 @@ export default function BookReader({ bookId, initialBook }: BookReaderProps) {
                 currentMarksRef.current = marks;
                 setWordMarks(marks);
 
+                console.log(`[BookReader] Set ${marks.length} word marks for sentence ${index}`);
+                if (marks.length > 0) {
+                    console.log('[BookReader] First mark:', marks[0]);
+                }
+
                 // Fallback logic for marks (if missing)
                 if (marks.length === 0 && sentences[index].text) {
                     audioRef.current.onloadedmetadata = () => {

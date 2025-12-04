@@ -43,6 +43,7 @@ export async function POST(req: NextRequest) {
             if (stdout.trim()) {
                 marks = JSON.parse(stdout.trim());
                 console.log(`[TTS API] Extracted ${marks.length} word marks`);
+                console.log(`[TTS API] First 3 marks:`, JSON.stringify(marks.slice(0, 3)));
             }
         } catch (e) {
             console.warn('[TTS API] Could not parse marks from Python script:', e);
