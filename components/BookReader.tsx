@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Play, Pause, ArrowLeft, Sparkles, X, MessageSquare, Settings } from "lucide-react";
+import { Play, Pause, ArrowLeft, Sparkles, X, MessageSquare, Settings, Maximize2, Minimize2 } from "lucide-react";
 import Link from "next/link";
 import ReviewPanel from "./ReviewPanel";
 import TTSControls, { VOICES } from "./TTSControls";
@@ -24,6 +24,12 @@ interface Sentence {
     pageIndex: number;
 }
 
+interface WordMark {
+    offset: number;
+    duration: number;
+    text: string;
+}
+
 export default function BookReader({ bookId, initialBook }: BookReaderProps) {
     const [book, setBook] = useState<BookData | null>(initialBook);
     const [sentences, setSentences] = useState<Sentence[]>([]);
@@ -35,6 +41,9 @@ export default function BookReader({ bookId, initialBook }: BookReaderProps) {
     const [showReviews, setShowReviews] = useState(false);
     const [isLoading, setIsLoading] = useState(!initialBook);
     const [currentPage, setCurrentPage] = useState(0);
+    const [isImmersive, setIsImmersive] = useState(false);
+    const [currentWordIndex, setCurrentWordIndex] = useState(-1);
+    const [wordMarks, setWordMarks] = useState<WordMark[]>([]);
 
     // TTS State
     const [voice, setVoice] = useState(VOICES[0].id);
@@ -90,6 +99,19 @@ export default function BookReader({ bookId, initialBook }: BookReaderProps) {
         setSentences(allSentences);
     };
 
+    const sentencesRef = useRef(sentences);
+    const wordMarksRef = useRef(wordMarks);
+
+    useEffect(() => {
+        sentencesRef.current = sentences;
+    }, [sentences]);
+
+    useEffect(() => {
+        wordMarksRef.current = wordMarks;
+    }, [wordMarks]);
+
+    const playSentenceRef = useRef<((index: number) => Promise<void>) | null>(null);
+
     // Initialize Audio once
     useEffect(() => {
         const audio = new Audio();
@@ -101,13 +123,17 @@ export default function BookReader({ bookId, initialBook }: BookReaderProps) {
                 if (prev === null) return 0;
 
                 let next = prev + 1;
+                const currentSentences = sentencesRef.current;
+
                 // Skip empty or whitespace-only sentences
-                while (next < sentences.length && !sentences[next]?.text?.trim()) {
+                while (next < currentSentences.length && !currentSentences[next]?.text?.trim()) {
                     next++;
                 }
 
-                if (next < sentences.length && isPlayingRef.current) {
-                    playSentence(next);
+                if (next < currentSentences.length && isPlayingRef.current) {
+                    if (playSentenceRef.current) {
+                        playSentenceRef.current(next);
+                    }
                     return next;
                 } else {
                     setIsPlaying(false);
@@ -117,14 +143,43 @@ export default function BookReader({ bookId, initialBook }: BookReaderProps) {
             });
         };
 
+        const handleTimeUpdate = () => {
+            if (!audioRef.current) return;
+
+            const currentMarks = wordMarksRef.current;
+            if (currentMarks.length === 0) return;
+
+            // Convert currentTime to 100ns units (ticks) used by edge-tts
+            // 1 second = 10,000,000 ticks
+            const currentTicks = audioRef.current.currentTime * 10000000;
+
+            // Find the current word based on offset
+            // Marks are sorted by offset
+            let activeIndex = -1;
+            for (let i = 0; i < currentMarks.length; i++) {
+                if (currentTicks >= currentMarks[i].offset) {
+                    activeIndex = i;
+                } else {
+                    break;
+                }
+            }
+
+            setCurrentWordIndex(prev => {
+                if (prev !== activeIndex) return activeIndex;
+                return prev;
+            });
+        };
+
         audio.addEventListener('ended', handleEnded);
+        audio.addEventListener('timeupdate', handleTimeUpdate);
 
         return () => {
             audio.removeEventListener('ended', handleEnded);
+            audio.removeEventListener('timeupdate', handleTimeUpdate);
             audio.pause();
             audio.src = "";
         };
-    }, [sentences]);
+    }, []);
 
     // Update volume when it changes
     useEffect(() => {
@@ -172,12 +227,64 @@ export default function BookReader({ bookId, initialBook }: BookReaderProps) {
 
             if (!response.ok) throw new Error("TTS Failed");
 
-            const blob = await response.blob();
+            const data = await response.json();
+            console.log("TTS Response received. Audio length:", data.audio?.length, "Marks:", data.marks?.length);
+
+            // Decode base64 audio
+            const audioBytes = Uint8Array.from(atob(data.audio), c => c.charCodeAt(0));
+            const blob = new Blob([audioBytes], { type: 'audio/mpeg' });
             const url = URL.createObjectURL(blob);
 
             if (audioRef.current) {
                 audioRef.current.pause();
                 audioRef.current.src = url;
+
+                // Set word marks for highlighting
+                let marks = data.marks || [];
+
+                // Fallback: Generate estimated marks if none provided
+                if (marks.length === 0 && sentences[index].text) {
+                    // We need audio duration to estimate, but we don't have it yet.
+                    // We'll generate them on 'loadedmetadata' event or just-in-time.
+                    // For now, let's attach a listener to generate them once duration is known.
+                    const generateFallbackMarks = () => {
+                        if (!audioRef.current || !audioRef.current.duration) return;
+                        const duration = audioRef.current.duration * 10000000; // to ticks
+                        const text = sentences[index].text;
+                        const words = text.split(/\s+/);
+                        const totalChars = text.length;
+                        const ticksPerChar = duration / totalChars;
+
+                        let currentOffset = 0;
+                        const estimatedMarks: WordMark[] = [];
+
+                        let charIndex = 0;
+                        words.forEach(word => {
+                            // Find word in text to get exact length including punctuation if needed
+                            // But simple split is okay for estimation
+                            const wordLen = word.length;
+                            const wordDuration = wordLen * ticksPerChar;
+
+                            estimatedMarks.push({
+                                text: word,
+                                offset: currentOffset,
+                                duration: wordDuration
+                            });
+
+                            currentOffset += wordDuration + (1 * ticksPerChar); // +1 for space
+                            charIndex += wordLen + 1;
+                        });
+
+                        setWordMarks(estimatedMarks);
+                    };
+
+                    audioRef.current.onloadedmetadata = generateFallbackMarks;
+                } else {
+                    setWordMarks(marks);
+                    audioRef.current.onloadedmetadata = null;
+                }
+
+                setCurrentWordIndex(-1);
 
                 const playPromise = audioRef.current.play();
                 if (playPromise !== undefined) {
@@ -202,6 +309,11 @@ export default function BookReader({ bookId, initialBook }: BookReaderProps) {
             }
         }
     };
+
+    // Update ref whenever playSentence changes
+    useEffect(() => {
+        playSentenceRef.current = playSentence;
+    }, [playSentence]);
 
     const togglePlay = () => {
         if (isPlaying) {
@@ -254,6 +366,58 @@ export default function BookReader({ bookId, initialBook }: BookReaderProps) {
         }
     };
 
+    // Immersive Mode Renderer
+    const renderImmersiveView = () => {
+        if (!activeSentenceIndex || !sentences[activeSentenceIndex]) return null;
+
+        // Use wordMarks if available, otherwise fallback to simple split (though marks should be there if playing)
+        // If not playing or no marks yet, show full text
+        const wordsToRender = wordMarks.length > 0 ? wordMarks : sentences[activeSentenceIndex].text.split(" ").map(t => ({ text: t }));
+
+        return (
+            <div className="fixed inset-0 bg-[#fdfbf7] z-40 flex flex-col items-center justify-center p-8 text-center">
+                <div className="max-w-4xl leading-relaxed flex flex-wrap justify-center gap-x-3 gap-y-2">
+                    {wordsToRender.map((mark: any, i) => (
+                        <motion.span
+                            key={i}
+                            className={`text-4xl md:text-5xl font-serif transition-all duration-150 ${i === currentWordIndex
+                                ? "opacity-100 text-black scale-105 font-medium"
+                                : i < currentWordIndex
+                                    ? "opacity-40 text-gray-800"
+                                    : "opacity-20 text-gray-400"
+                                }`}
+                            initial={{ opacity: 0.2, y: 10 }}
+                            animate={{
+                                opacity: i === currentWordIndex ? 1 : (i < currentWordIndex ? 0.4 : 0.2),
+                                y: 0,
+                                scale: i === currentWordIndex ? 1.05 : 1,
+                                color: i === currentWordIndex ? "#1a1a1a" : (i < currentWordIndex ? "#4b5563" : "#9ca3af")
+                            }}
+                        >
+                            {mark.text}
+                        </motion.span>
+                    ))}
+                </div>
+
+                {/* Immersive Controls */}
+                <div className="absolute bottom-12 flex items-center gap-6">
+                    <button
+                        onClick={togglePlay}
+                        className="p-4 bg-black text-white rounded-full hover:scale-105 transition-transform"
+                    >
+                        {isPlaying ? <Pause className="w-8 h-8" /> : <Play className="w-8 h-8" />}
+                    </button>
+                    <button
+                        onClick={() => setIsImmersive(false)}
+                        className="p-4 bg-gray-100 rounded-full hover:bg-gray-200 transition-colors"
+                    >
+                        <Minimize2 className="w-6 h-6 opacity-60" />
+                    </button>
+                </div>
+            </div>
+        );
+    };
+
     if (isLoading) {
         return (
             <div className="min-h-screen flex items-center justify-center bg-[#fdfbf7]">
@@ -295,6 +459,20 @@ export default function BookReader({ bookId, initialBook }: BookReaderProps) {
 
     return (
         <div className="min-h-screen bg-[#fdfbf7] text-[#1a1a1a] font-serif relative">
+            {/* Immersive View Overlay */}
+            <AnimatePresence>
+                {isImmersive && (
+                    <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        className="fixed inset-0 z-50"
+                    >
+                        {renderImmersiveView()}
+                    </motion.div>
+                )}
+            </AnimatePresence>
+
             {/* Navigation Bar */}
             <div className="fixed top-0 left-0 right-0 h-16 bg-[#fdfbf7]/90 backdrop-blur-sm border-b border-black/5 z-20 flex items-center justify-between px-6">
                 <Link href="/" className="p-2 hover:bg-black/5 rounded-full transition-colors">
@@ -305,6 +483,14 @@ export default function BookReader({ bookId, initialBook }: BookReaderProps) {
                     <p className="text-xs opacity-50 truncate max-w-xs">{book.author}</p>
                 </div>
                 <div className="flex items-center gap-2 relative">
+                    <button
+                        onClick={() => setIsImmersive(true)}
+                        className="p-2 hover:bg-black/5 rounded-full transition-colors"
+                        title="Immersive Mode"
+                    >
+                        <Maximize2 className="w-5 h-5 opacity-60" />
+                    </button>
+
                     <button
                         onClick={() => setShowSettings(!showSettings)}
                         className={`p-2 hover:bg-black/5 rounded-full transition-colors ${showSettings ? "bg-black/5" : ""}`}

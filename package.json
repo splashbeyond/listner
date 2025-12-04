@@ -9,10 +9,12 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@inworld/nodejs-sdk": "^1.17.0",
     "@travisvn/edge-tts": "^1.0.2",
     "framer-motion": "^12.23.25",
     "lucide-react": "^0.555.0",
     "next": "16.0.7",
+    "node-fetch": "^3.3.2",
     "pdfjs-dist": "^5.4.449",
     "react": "19.2.0",
     "react-dom": "19.2.0"
