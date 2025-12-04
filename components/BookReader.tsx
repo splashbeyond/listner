@@ -452,18 +452,25 @@ export default function BookReader({ bookId, initialBook }: BookReaderProps) {
     };
 
     const handleSentenceClick = (index: number, text: string) => {
+        // Always highlight the clicked sentence
+        setActiveSentenceIndex(index);
+
+        // If audio is playing, jump to this sentence
         if (isPlaying) {
             playSentence(index);
-        } else {
-            setActiveSentenceIndex(index);
-            setShowOverlay(true);
-            setIsExplaining(true);
-
-            setTimeout(() => {
-                setExplanation(`Here is an explanation for: "${text.substring(0, 30)}..." \n\nThis sentence sets the tone for the narrative, establishing a reflective mood. The author uses this to foreshadow the themes of judgment and class that permeate the novel.`);
-                setIsExplaining(false);
-            }, 1500);
         }
+    };
+
+    const handleSentenceDoubleClick = (index: number, text: string) => {
+        // Only show AI explanation on double-click
+        setActiveSentenceIndex(index);
+        setShowOverlay(true);
+        setIsExplaining(true);
+
+        setTimeout(() => {
+            setExplanation(`Here is an explanation for: "${text.substring(0, 30)}..." \n\nThis sentence sets the tone for the narrative, establishing a reflective mood. The author uses this to foreshadow the themes of judgment and class that permeate the novel.`);
+            setIsExplaining(false);
+        }, 1500);
     };
 
     const getCurrentPageSentences = () => {
@@ -678,6 +685,7 @@ export default function BookReader({ bookId, initialBook }: BookReaderProps) {
                         <span
                             key={globalIndex}
                             onClick={() => handleSentenceClick(globalIndex, sentence.text)}
+                            onDoubleClick={() => handleSentenceDoubleClick(globalIndex, sentence.text)}
                             className={`
                                 cursor-pointer transition-colors duration-200 rounded px-1
                                 ${activeSentenceIndex === globalIndex ? "bg-yellow-200/50" : "hover:bg-black/5"}

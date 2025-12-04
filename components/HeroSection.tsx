@@ -1,51 +1,42 @@
-import React, { useRef } from "react";
-import { Icon1 } from "./Icon1";
-import { Cinzel } from "next/font/google";
-import { motion, useScroll, useTransform } from "framer-motion";
+'use client';
 
-const cinzel = Cinzel({ subsets: ["latin"] });
+import { motion } from "framer-motion";
+import Link from "next/link";
 
 export default function HeroSection() {
-    const containerRef = useRef<HTMLDivElement>(null);
-    const { scrollY } = useScroll();
-
-    // Parallax effects
-    const yText = useTransform(scrollY, [0, 500], [0, 200]);
-    const opacityText = useTransform(scrollY, [0, 300], [1, 0]);
-
     return (
-        <div ref={containerRef} className="w-full relative h-[80vh] min-h-[600px] flex flex-col items-center justify-center overflow-hidden">
-
-            {/* Content */}
+        <div className="relative w-full min-h-screen flex flex-col items-center justify-center px-8 overflow-hidden bg-gradient-to-b from-[#2d1810] via-[#1a2332] to-[#0f1419]">
+            {/* Main content */}
             <motion.div
-                style={{ y: yText, opacity: opacityText }}
-                className="relative z-10 w-full max-w-[1440px] px-6 flex flex-col items-center text-center"
+                className="max-w-5xl mx-auto text-center relative z-10 pt-32 pb-40"
+                initial={{ opacity: 0, y: 30 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 1, ease: "easeOut" }}
             >
-                <div className="w-full max-w-[1100px] flex flex-col items-center gap-6">
+                {/* Main headline - Large serif */}
+                <motion.h1
+                    className="text-5xl md:text-6xl lg:text-7xl font-serif leading-[1.15] text-white mb-16 font-normal"
+                    initial={{ opacity: 0, y: 40 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.2, duration: 1 }}
+                >
+                    From first spark to lasting legacy, we guide you through every stage of creation, transformation, and regeneration.
+                </motion.h1>
+            </motion.div>
 
-                    {/* Main Title */}
-                    <h1 className={`${cinzel.className} text-[#1a1a1a] text-7xl md:text-9xl font-normal tracking-tighter leading-tight drop-shadow-sm`}>
-                        <span className="inline-block bg-clip-text text-transparent bg-gradient-to-b from-[#1a1a1a] to-[#4a3b32]">
-                            Listener
-                        </span>
-                    </h1>
-
-                    {/* Subtitle / Description */}
-                    <p className="text-[#1a1a1a]/70 text-xl md:text-2xl max-w-2xl font-serif italic leading-relaxed">
-                        "All your books, under one mind."
-                    </p>
-
-                    {/* CTA Button */}
-                    <div className="pt-10">
-                        <a href="#library" className="bg-[#1a1a1a] text-[#fdfbf7] px-10 py-5 rounded-full flex items-center gap-4 hover:bg-black hover:scale-105 transition-all duration-300 group shadow-xl">
-                            <span className="text-base font-medium tracking-widest uppercase font-sans">Start Reading</span>
-                            <div className="w-5 h-5 text-[#fdfbf7] group-hover:translate-x-1 transition-transform">
-                                <Icon1 />
-                            </div>
-                        </a>
-                    </div>
-
-                </div>
+            {/* Bottom scroll indicator */}
+            <motion.div
+                className="absolute bottom-16 left-1/2 -translate-x-1/2 text-white/60 text-xs uppercase tracking-[0.2em]"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: 1.2, duration: 0.8 }}
+            >
+                <motion.div
+                    animate={{ y: [0, 8, 0] }}
+                    transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+                >
+                    Scroll
+                </motion.div>
             </motion.div>
         </div>
     );

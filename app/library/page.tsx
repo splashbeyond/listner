@@ -5,7 +5,6 @@ import Link from "next/link";
 import { BookOpen, Star, Upload } from "lucide-react";
 import { motion } from "framer-motion";
 import { renderPDFCover } from "@/lib/pdf-utils";
-import HeroSection from "./HeroSection";
 import { saveBookToDB, getAllBooksFromDB } from "@/lib/db";
 
 // Mock Data for Books
@@ -18,26 +17,31 @@ const INITIAL_BOOKS = [
     { id: "6", title: "Moby Dick", author: "Herman Melville", coverColor: "bg-indigo-200" },
 ];
 
-export default function Bookshelf() {
+export default function LibraryPage() {
     const [books, setBooks] = useState(INITIAL_BOOKS);
     const [isUploading, setIsUploading] = useState(false);
     const [uploadProgress, setUploadProgress] = useState(0);
-    const [useOCR, setUseOCR] = useState(false);
 
-    // ... useEffect
+    useEffect(() => {
+        const loadBooks = async () => {
+            const storedBooks = await getAllBooksFromDB();
+            if (storedBooks.length > 0) {
+                setBooks(storedBooks);
+            }
+        };
+        loadBooks();
+    }, []);
 
     const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file) return;
 
         setIsUploading(true);
-        setUploadProgress(0); // Indeterminate state for now
+        setUploadProgress(0);
 
         try {
-            // Get cover image locally (still fast and good for UI)
             const coverImage = await renderPDFCover(file).catch(() => null);
 
-            // Send file to server for Python processing
             const formData = new FormData();
             formData.append("file", file);
 
@@ -48,34 +52,22 @@ export default function Bookshelf() {
 
             if (!response.ok) {
                 const err = await response.json();
-                console.error("Server Error:", err);
                 throw new Error(err.error || "Failed to parse PDF");
             }
 
             const data = await response.json();
-            const { pages, fullText, metadata } = data;
-
-            if (!fullText || fullText.trim().length === 0) {
-                throw new Error("No text found in PDF. It might be a scanned image.");
-            }
 
             const newBook = {
                 id: `custom-${Date.now()}`,
-                title: metadata?.Title || file.name.replace(".pdf", ""),
-                author: metadata?.Author || "Unknown Author",
-                coverColor: "bg-gray-200",
-                coverImage: coverImage, // Store data URL
-                content: fullText,
-                pages: pages,
-                isCustom: true
+                title: file.name.replace(".pdf", ""),
+                author: "Unknown Author",
+                coverColor: "bg-purple-200",
+                content: data.fullText,
+                coverImage: coverImage || undefined,
             };
 
-            // Save full book to IndexedDB
             await saveBookToDB(newBook);
-
-            // Update local state (lightweight version)
-            const bookForList = { ...newBook, content: undefined, pages: undefined };
-            setBooks(prev => [...prev, bookForList]);
+            setBooks((prev) => [...prev, newBook]);
         } catch (error) {
             console.error("Failed to parse PDF", error);
             alert("Failed to read PDF. Please try another file.");
@@ -86,76 +78,59 @@ export default function Bookshelf() {
     };
 
     return (
-        <div className="min-h-screen w-full relative flex flex-col items-center overflow-hidden bg-gradient-to-b from-[#0f1419] to-[#1a1a1a]">
-
+        <div className="min-h-screen w-full relative flex flex-col items-center bg-gradient-to-b from-[#2d1810] via-[#1a2332] to-[#0f1419]">
             {/* Fixed Navigation Bar */}
             <nav className="fixed top-0 left-0 right-0 z-50 bg-gradient-to-b from-[#2d1810]/95 to-transparent backdrop-blur-sm">
                 <div className="max-w-7xl mx-auto px-6 py-6 flex items-center justify-between">
-                    {/* Logo */}
                     <Link href="/" className="text-white text-xl font-bold tracking-wider uppercase">
                         Listener
                     </Link>
 
-                    {/* Navigation Links */}
                     <div className="hidden md:flex items-center gap-8 text-sm text-white/80">
-                        <a href="#library" className="hover:text-white transition-colors">Library</a>
+                        <Link href="/library" className="text-white font-medium">Library</Link>
                         <a href="#about" className="hover:text-white transition-colors">About</a>
                         <a href="#contact" className="hover:text-white transition-colors">Contact</a>
                     </div>
                 </div>
             </nav>
 
-            {/* Subtle Texture/Noise Overlay */}
-            <div className="fixed inset-0 z-0 opacity-[0.03] pointer-events-none bg-[url('https://grainy-gradients.vercel.app/noise.svg')]"></div>
-
-            {/* Hero Section */}
-            <div className="relative z-10 w-full">
-                <HeroSection />
-            </div>
-
-            <div className="relative z-10 w-full flex flex-col items-center">
-                {/* Upload Button Section */}
-                <div className="w-full max-w-6xl px-6 py-12 flex flex-col items-center gap-4" id="library">
-                    <motion.div
-                        initial={{ opacity: 0, y: 20 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ duration: 0.8, delay: 0.3 }}
-                        className="flex flex-col items-center gap-4"
-                    >
-                        <label className="cursor-pointer bg-white text-black px-8 py-4 rounded-full font-medium hover:bg-gray-100 transition-colors flex items-center gap-3 shadow-lg hover:shadow-xl transform hover:-translate-y-1">
-                            {isUploading ? (
-                                <span className="animate-pulse">
-                                    Processing PDF...
-                                </span>
-                            ) : (
-                                <>
-                                    <Upload className="w-5 h-5" />
-                                    <span className="font-sans">Upload PDF</span>
-                                </>
-                            )}
-                            <input type="file" accept=".pdf" className="hidden" onChange={handleFileUpload} disabled={isUploading} />
-                        </label>
-                    </motion.div>
-                </div>
+            {/* Main Content */}
+            <div className="w-full max-w-7xl px-6 pt-32 pb-24">
+                {/* Upload Section */}
+                <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.6 }}
+                    className="flex flex-col items-center gap-6 mb-16"
+                >
+                    <label className="cursor-pointer bg-white text-black px-8 py-4 rounded-full font-medium hover:bg-gray-100 transition-all duration-300 flex items-center gap-3 shadow-lg hover:shadow-xl transform hover:-translate-y-1">
+                        {isUploading ? (
+                            <span className="animate-pulse">Processing PDF...</span>
+                        ) : (
+                            <>
+                                <Upload className="w-5 h-5" />
+                                <span>Upload PDF</span>
+                            </>
+                        )}
+                        <input type="file" accept=".pdf" className="hidden" onChange={handleFileUpload} disabled={isUploading} />
+                    </label>
+                </motion.div>
 
                 {/* Books Grid */}
-                <div className="w-full max-w-6xl px-6 pb-24 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-8">
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-8">
                     {books.map((book: any, index: number) => (
                         <motion.div
                             key={book.id}
                             initial={{ opacity: 0, scale: 0.9 }}
                             animate={{ opacity: 1, scale: 1 }}
-                            transition={{ duration: 0.5, delay: index * 0.1 }}
+                            transition={{ duration: 0.5, delay: index * 0.05 }}
                         >
                             <Link href={`/reader/${book.id}`} className="group block">
-                                <div className={`aspect-[2/3] w-full rounded-lg shadow-lg ${book.coverColor} relative overflow-hidden transition-transform duration-300 group-hover:-translate-y-2 group-hover:shadow-xl`}>
-
-                                    {/* Cover Image if available */}
+                                <div className={`aspect-[2/3] w-full rounded-lg shadow-lg ${book.coverColor} relative overflow-hidden transition-all duration-300 group-hover:-translate-y-2 group-hover:shadow-2xl`}>
                                     {book.coverImage ? (
                                         <img src={book.coverImage} alt={book.title} className="absolute inset-0 w-full h-full object-cover" />
                                     ) : (
                                         <>
-                                            {/* Book Spine/Detail for default covers */}
                                             <div className="absolute left-0 top-0 bottom-0 w-4 bg-black/10"></div>
                                             <div className="p-6 flex flex-col h-full justify-between relative z-10">
                                                 <div className="text-right">
@@ -169,7 +144,6 @@ export default function Bookshelf() {
                                         </>
                                     )}
 
-                                    {/* Glassmorphism Overlay */}
                                     <div className="absolute inset-0 bg-white/10 backdrop-blur-[2px] opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center z-20">
                                         <span className="bg-white/90 text-black px-4 py-2 rounded-full text-sm font-medium">Read Now</span>
                                     </div>
