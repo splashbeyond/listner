@@ -6,12 +6,12 @@ import { BookOpen, Star, Upload, Loader2 } from "lucide-react";
 import { motion } from "framer-motion";
 import { renderPDFCover } from "@/lib/pdf-utils";
 import { saveBookToDB, getAllBooksFromDB, clearAllBooksFromDB } from "@/lib/db";
-import { fetchPopularBooks, POPULAR_CLASSICS, fetchBookById, convertToAppBook, fetchBookText } from "@/lib/gutenberg";
+import { EPUB_BOOKS, parseEpubFile, extractEpubCover } from "@/lib/epub-utils";
 
 export default function LibraryPage() {
     const [books, setBooks] = useState<any[]>([]);
     const [isUploading, setIsUploading] = useState(false);
-    const [isLoadingGutenberg, setIsLoadingGutenberg] = useState(true);
+    const [isLoadingEpub, setIsLoadingEpub] = useState(true);
     const [uploadProgress, setUploadProgress] = useState(0);
 
     useEffect(() => {
@@ -19,38 +19,83 @@ export default function LibraryPage() {
     }, []);
 
     const loadLibrary = async () => {
-        setIsLoadingGutenberg(true);
+        setIsLoadingEpub(true);
 
-        // Check if we have Gutenberg books already
+        // Check if we have EPUB books already
         const storedBooks = await getAllBooksFromDB();
-        const hasGutenbergBooks = storedBooks.some(book => book.id?.startsWith('gutenberg-'));
+        const hasEpubBooks = storedBooks.some(book => book.id?.startsWith('epub-'));
 
-        if (hasGutenbergBooks) {
-            // Show existing Gutenberg books
+        if (hasEpubBooks) {
+            // Show existing EPUB books
             setBooks(storedBooks);
-            setIsLoadingGutenberg(false);
+            setIsLoadingEpub(false);
+
+            // Check for missing covers in background
+            checkAndLoadCovers(storedBooks);
         } else {
-            // Clear old books and fetch Gutenberg
-            console.log('No Gutenberg books found, fetching fresh...');
-            await loadGutenbergBooks();
+            // Clear old books and load EPUB books
+            console.log('No EPUB books found, loading from files...');
+            await loadEpubBooks();
         }
     };
 
-    const loadGutenbergBooks = async () => {
+    const checkAndLoadCovers = async (currentBooks: any[]) => {
+        console.log('Checking for missing covers...');
+        let updated = false;
+        const updatedBooks = [...currentBooks];
+
+        for (let i = 0; i < updatedBooks.length; i++) {
+            const book = updatedBooks[i];
+            // Find the original file path from the static list if missing
+            const staticData = EPUB_BOOKS.find(b => b.id === book.id);
+            const filePath = book.filePath || staticData?.filePath;
+
+            if (!book.coverImage && filePath) {
+                try {
+                    console.log(`Extracting cover for ${book.title}...`);
+                    const coverUrl = await extractEpubCover(filePath);
+
+                    if (coverUrl) {
+                        book.coverImage = coverUrl;
+                        book.filePath = filePath; // Ensure path is saved
+                        await saveBookToDB(book);
+                        updated = true;
+                        // Update state incrementally to show progress
+                        setBooks([...updatedBooks]);
+                    }
+                } catch (err) {
+                    console.error(`Failed to extract cover for ${book.title}`, err);
+                }
+            }
+        }
+
+        if (updated) {
+            console.log('Finished updating covers');
+        }
+    };
+
+    const loadEpubBooks = async () => {
         try {
-            console.log('Fetching popular Gutenberg books...');
+            console.log('Loading EPUB books from public/books directory...');
 
-            // Clear any existing books first
-            await clearAllBooksFromDB();
+            // Get existing books to check for covers
+            const existingBooks = await getAllBooksFromDB();
+            const existingBookMap = new Map(existingBooks.map(b => [b.id, b]));
 
-            // Fetch a curated selection of popular classics
-            const bookPromises = POPULAR_CLASSICS.slice(0, 12).map(id => fetchBookById(id));
-            const gutenbergBooks = await Promise.all(bookPromises);
-
-            // Convert to app format (without content initially for faster loading)
-            const appBooks = gutenbergBooks
-                .filter(book => book !== null)
-                .map(book => convertToAppBook(book!));
+            // Load all EPUB books
+            const appBooks = EPUB_BOOKS.map(book => {
+                const existing = existingBookMap.get(book.id);
+                return {
+                    id: book.id,
+                    title: book.title,
+                    author: book.author,
+                    coverColor: book.coverColor,
+                    coverImage: existing?.coverImage || book.coverImage, // Preserve existing cover if available
+                    filePath: book.filePath,
+                    content: existing?.content || '', // Preserve existing content
+                    pages: existing?.pages || [], // Preserve existing pages
+                };
+            });
 
             // Save to IndexedDB
             for (const book of appBooks) {
@@ -58,11 +103,14 @@ export default function LibraryPage() {
             }
 
             setBooks(appBooks);
-            console.log(`Loaded ${appBooks.length} Gutenberg books`);
+            setIsLoadingEpub(false); // Show books immediately
+
+            // Lazily load covers
+            await checkAndLoadCovers(appBooks);
+
         } catch (error) {
-            console.error('Failed to load Gutenberg books:', error);
-        } finally {
-            setIsLoadingGutenberg(false);
+            console.error('Failed to load EPUB books:', error);
+            setIsLoadingEpub(false);
         }
     };
 
@@ -152,15 +200,15 @@ export default function LibraryPage() {
                 </motion.div>
 
                 {/* Loading State */}
-                {isLoadingGutenberg && books.length === 0 && (
+                {isLoadingEpub && books.length === 0 && (
                     <div className="flex flex-col items-center justify-center py-20">
                         <Loader2 className="w-12 h-12 text-white animate-spin mb-4" />
-                        <p className="text-white/60 text-lg">Loading classic books from Project Gutenberg...</p>
+                        <p className="text-white/60 text-lg">Loading classic books...</p>
                     </div>
                 )}
 
                 {/* Empty State */}
-                {!isLoadingGutenberg && books.length === 0 && (
+                {!isLoadingEpub && books.length === 0 && (
                     <div className="text-center py-20">
                         <p className="text-white/60 text-lg">No books in your library yet. Upload a PDF to get started!</p>
                     </div>
