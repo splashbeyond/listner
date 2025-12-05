@@ -1,11 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { exec } from 'child_process';
-import { promisify } from 'util';
-import path from 'path';
-import fs from 'fs/promises';
-import os from 'os';
+import { EdgeTTS } from '@travisvn/edge-tts';
 
-const execAsync = promisify(exec);
+// Force dynamic to avoid static generation issues with API routes
+export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest) {
     try {
@@ -19,45 +16,31 @@ export async function POST(req: NextRequest) {
             return NextResponse.json({ error: 'Text is required' }, { status: 400 });
         }
 
-        const timestamp = Date.now();
-        const random = Math.random();
-        const tempAudioFile = path.join(os.tmpdir(), `tts-${timestamp}-${random}.mp3`);
-
         const rateArg = rate || '+0%';
         const voiceArg = voice || 'en-US-AriaNeural';
 
-        console.log(`[TTS API] Generating audio with word marks...`);
+        console.log(`[TTS API] Generating audio with word marks using Node.js EdgeTTS...`);
 
-        // Use our custom Python script that extracts word-level marks
-        const scriptPath = path.join(process.cwd(), 'scripts', 'tts_with_marks.py');
-        const command = `/usr/bin/python3 "${scriptPath}" "${text.replace(/"/g, '\\"')}" "${voiceArg}" "${rateArg}" "${tempAudioFile}"`;
+        // Initialize EdgeTTS
+        const tts = new EdgeTTS(text, voiceArg, {
+            rate: rateArg,
+            volume: "+0%"
+        });
 
-        const { stdout, stderr } = await execAsync(command, { maxBuffer: 1024 * 1024 * 10 });
+        // Generate audio and subtitles
+        const { audio, subtitle } = await tts.synthesize();
 
-        // Read audio file
-        const audioBuffer = await fs.readFile(tempAudioFile);
+        // Convert Blob to Base64
+        const arrayBuffer = await audio.arrayBuffer();
+        const buffer = Buffer.from(arrayBuffer);
+        const base64Audio = buffer.toString('base64');
 
-        // Parse marks from stdout (JSON format)
-        let marks: any[] = [];
-        try {
-            if (stdout.trim()) {
-                marks = JSON.parse(stdout.trim());
-                console.log(`[TTS API] Extracted ${marks.length} word marks`);
-                console.log(`[TTS API] First 3 marks:`, JSON.stringify(marks.slice(0, 3)));
-            }
-        } catch (e) {
-            console.warn('[TTS API] Could not parse marks from Python script:', e);
-            console.warn('[TTS API] stdout:', stdout);
-            console.warn('[TTS API] stderr:', stderr);
-        }
-
-        // Cleanup temp files
-        await fs.unlink(tempAudioFile).catch(() => { });
-
+        console.log(`[TTS API] Generated audio size: ${buffer.length} bytes`);
+        console.log(`[TTS API] Extracted ${subtitle.length} word marks`);
 
         return NextResponse.json({
-            audio: audioBuffer.toString('base64'),
-            marks: marks
+            audio: base64Audio,
+            marks: subtitle
         });
 
     } catch (error: any) {
