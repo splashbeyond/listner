@@ -25,7 +25,7 @@ export async function POST(req: NextRequest) {
         }));
 
         const response = await anthropic.messages.create({
-            model: "claude-3-5-sonnet-20240620",
+            model: "claude-3-5-haiku-latest",
             max_tokens: 1024,
             messages: validMessages,
             system: "You are a creative writing assistant helping the user write a novel. Be encouraging, creative, and helpful. Ask guiding questions to help develop the plot and characters. Keep your responses concise and focused on moving the story forward."

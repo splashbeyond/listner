@@ -35,7 +35,7 @@ The output MUST be valid JSON with the following structure:
 Ensure the content is high-quality, engaging, and matches the user's requests. Do not include any text outside the JSON object.`;
 
         const response = await anthropic.messages.create({
-            model: "claude-3-5-sonnet-20240620",
+            model: "claude-3-5-haiku-latest",
             max_tokens: 4096, // Large output for a full book
             messages: [
                 ...messages.filter((m: any) => m.role === 'user' || m.role === 'assistant').map((m: any) => ({ role: m.role, content: m.content })),
