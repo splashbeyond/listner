@@ -90,7 +90,8 @@ export default function LibraryPage() {
                     title: book.title,
                     author: book.author,
                     coverColor: book.coverColor,
-                    coverImage: existing?.coverImage || book.coverImage, // Preserve existing cover if available
+                    // FORCE use of static cover if available, otherwise fall back to existing
+                    coverImage: book.coverImage || existing?.coverImage,
                     filePath: book.filePath,
                     content: existing?.content || '', // Preserve existing content
                     pages: existing?.pages || [], // Preserve existing pages
