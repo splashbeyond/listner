@@ -2,7 +2,7 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   /* config options here */
-  // Trigger redeploy for Prisma fix
+  // Trigger fresh build for API fix
 };
 
 export default nextConfig;
