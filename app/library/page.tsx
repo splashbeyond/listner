@@ -26,12 +26,22 @@ export default function LibraryPage() {
         const hasEpubBooks = storedBooks.some(book => book.id?.startsWith('epub-'));
 
         if (hasEpubBooks) {
-            // Show existing EPUB books
-            setBooks(storedBooks);
+            // Merge stored books with static data to ensure we get the new static covers
+            const mergedBooks = storedBooks.map(storedBook => {
+                const staticBook = EPUB_BOOKS.find(b => b.id === storedBook.id);
+                if (staticBook && staticBook.coverImage) {
+                    // Force update the cover image from static config
+                    return { ...storedBook, coverImage: staticBook.coverImage };
+                }
+                return storedBook;
+            });
+
+            // Show existing EPUB books (with updated covers)
+            setBooks(mergedBooks);
             setIsLoadingEpub(false);
 
             // Check for missing covers in background
-            checkAndLoadCovers(storedBooks);
+            checkAndLoadCovers(mergedBooks);
         } else {
             // Clear old books and load EPUB books
             console.log('No EPUB books found, loading from files...');
