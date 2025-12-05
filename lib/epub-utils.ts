@@ -216,6 +216,25 @@ function extractTextFromDocument(doc: any): string {
 }
 
 /**
+ * Helper to convert Blob URL to Base64
+ */
+async function blobUrlToBase64(blobUrl: string): Promise<string> {
+    try {
+        const response = await fetch(blobUrl);
+        const blob = await response.blob();
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result as string);
+            reader.onerror = reject;
+            reader.readAsDataURL(blob);
+        });
+    } catch (e) {
+        console.error("Failed to convert blob to base64", e);
+        return blobUrl; // Fallback
+    }
+}
+
+/**
  * Extract cover image from EPUB
  */
 export async function extractEpubCover(filePath: string): Promise<string | null> {
@@ -223,44 +242,53 @@ export async function extractEpubCover(filePath: string): Promise<string | null>
         const book = ePub(filePath);
         await book.ready;
 
+        let coverUrl: string | null = null;
+
         // Method 1: Standard coverUrl()
-        let coverUrl = await book.coverUrl();
-        if (coverUrl) return coverUrl;
+        coverUrl = await book.coverUrl();
 
         // Method 2: Search manifest for "cover"
-        // @ts-ignore
-        const resources = book.resources;
-        // @ts-ignore
-        const manifest = book.packaging.manifest;
+        if (!coverUrl) {
+            // @ts-ignore
+            const manifest = book.packaging.manifest;
+            if (manifest) {
+                const coverItem = Object.values(manifest).find((item: any) =>
+                    item.properties?.includes('cover-image') ||
+                    item.id.toLowerCase().includes('cover') ||
+                    item.href.toLowerCase().includes('cover')
+                );
 
-        if (manifest) {
-            const coverItem = Object.values(manifest).find((item: any) =>
-                item.properties?.includes('cover-image') ||
-                item.id.toLowerCase().includes('cover') ||
-                item.href.toLowerCase().includes('cover')
-            );
-
-            if (coverItem) {
-                // @ts-ignore
-                return await book.archive.createUrl(coverItem.href);
+                if (coverItem) {
+                    // @ts-ignore
+                    coverUrl = await book.archive.createUrl(coverItem.href);
+                }
             }
         }
 
         // Method 3: First image in the book
-        // @ts-ignore
-        const images = Object.values(manifest).filter((item: any) =>
-            item.mediaType?.startsWith('image/')
-        );
-
-        if (images.length > 0) {
-            // Pick the largest image or just the first one
+        if (!coverUrl) {
             // @ts-ignore
-            return await book.archive.createUrl(images[0].href);
+            const resources = book.resources;
+            // @ts-ignore
+            const images = Object.values(resources?.assets || {}).filter((r: any) =>
+                r.type.startsWith('image/')
+            );
+
+            if (images.length > 0) {
+                // @ts-ignore
+                coverUrl = await book.archive.createUrl(images[0].href);
+            }
         }
 
-        return null;
-    } catch (error) {
-        console.error('Failed to extract EPUB cover:', error);
+        // Convert Blob URL to Base64 for persistence
+        if (coverUrl && coverUrl.startsWith('blob:')) {
+            return await blobUrlToBase64(coverUrl);
+        }
+
+        return coverUrl;
+
+    } catch (e) {
+        console.error("Error extracting cover:", e);
         return null;
     }
 }
