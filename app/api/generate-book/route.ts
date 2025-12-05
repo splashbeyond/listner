@@ -16,23 +16,28 @@ export async function POST(req: NextRequest) {
         });
 
         // Construct the prompt to force JSON output
-        const systemPrompt = `You are an expert novelist. Your task is to take the conversation history and generate a complete, structured novel in JSON format.
+        const systemPrompt = `You are an expert novelist. Your task is to take the conversation history and generate a detailed BLUEPRINT for a novel in JSON format.
         
 The output MUST be valid JSON with the following structure:
 {
     "title": "The Title",
     "author": "The Author",
     "description": "A short summary",
+    "style": "The agreed upon style/tone",
     "chapters": [
         {
             "title": "Chapter 1: The Beginning",
-            "content": "The full text of chapter 1..."
+            "plot_summary": "Detailed instructions on what happens in this chapter, characters involved, and key plot points. This will be used to generate the full text later."
         },
         ...
     ]
 }
 
-Ensure the content is high-quality, engaging, and matches the user's requests. Do not include any text outside the JSON object.`;
+IMPORTANT:
+1. Create a comprehensive list of chapters (at least 5-10 unless specified otherwise).
+2. The "plot_summary" for each chapter must be detailed enough to guide the writing of a full chapter (2-3 sentences minimum).
+3. Do NOT write the full chapter content yet.
+4. Ensure the structure matches the user's request (genre, length, etc.).`;
 
         const response = await anthropic.messages.create({
             model: "claude-3-5-haiku-latest",
@@ -45,7 +50,18 @@ Ensure the content is high-quality, engaging, and matches the user's requests. D
         });
 
         // @ts-ignore
-        const textContent = response.content[0]?.text || "";
+        let textContent = response.content[0]?.text || "";
+
+        // Clean up markdown code blocks if present
+        textContent = textContent.replace(/```json\n?|\n?```/g, '').trim();
+
+        // Find the first '{' and last '}' to ensure we only get the JSON object
+        const firstBrace = textContent.indexOf('{');
+        const lastBrace = textContent.lastIndexOf('}');
+
+        if (firstBrace !== -1 && lastBrace !== -1) {
+            textContent = textContent.substring(firstBrace, lastBrace + 1);
+        }
 
         return NextResponse.json({
             content: textContent

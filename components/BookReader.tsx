@@ -27,6 +27,7 @@ interface Sentence {
     text: string;
     pageIndex: number;
     isHeading?: boolean;
+    verseNumber?: string;
 }
 
 interface WordMark {
@@ -49,6 +50,8 @@ export default function BookReader({ bookId, initialBook }: BookReaderProps) {
     const [isImmersive, setIsImmersive] = useState(false);
     const [currentWordIndex, setCurrentWordIndex] = useState(-1);
     const [wordMarks, setWordMarks] = useState<WordMark[]>([]);
+    const [showChapters, setShowChapters] = useState(false);
+    const [chapters, setChapters] = useState<{ title: string; pageIndex: number }[]>([]);
 
     // TTS State
     // TTS State
@@ -156,6 +159,20 @@ export default function BookReader({ bookId, initialBook }: BookReaderProps) {
         }
     }, [currentPage, book?.id]); // Only trigger when page changes
 
+    // Extract chapters when sentences change
+    useEffect(() => {
+        const extractedChapters = sentences
+            .filter(s => s.isHeading)
+            .map(s => ({ title: s.text, pageIndex: s.pageIndex }));
+
+        // Deduplicate by page index (keep first heading of page)
+        const uniqueChapters = extractedChapters.filter((c, index, self) =>
+            index === self.findIndex(t => t.pageIndex === c.pageIndex)
+        );
+
+        setChapters(uniqueChapters);
+    }, [sentences]);
+
     const processBookContent = (bookData: any) => {
         const allSentences: Sentence[] = [];
         const segmenter = new Intl.Segmenter("en", { granularity: "sentence" });
@@ -185,62 +202,115 @@ export default function BookReader({ bookId, initialBook }: BookReaderProps) {
                     }
                 } else {
                     // Regular paragraph
-                    // 1. Unwrap lines: Replace single newlines with spaces
-                    // This fixes the issue where sentences split across lines were broken
+
+                    // 1. Unwrap lines first to handle verses split across lines
                     const unwrappedText = trimmedPara.replace(/\n/g, ' ');
 
                     // 2. Clean up whitespace
                     const cleanText = unwrappedText.replace(/\s+/g, " ").trim();
                     if (!cleanText) continue;
 
-                    // 3. Segment into sentences
-                    const segments = Array.from(segmenter.segment(cleanText));
+                    // 3. Split by verse numbers (e.g. "1:1 " or " 1:2 ")
+                    // We use a regex with capturing group to keep the verse numbers
+                    // Pattern: optional space + digit + colon + digit + space
+                    const verseSplitRegex = /(?:^|\s)(\d+:\d+)\s/;
 
-                    // 4. Post-process segments to fix abbreviations (Mr., Mrs., etc.)
-                    const mergedSentences: string[] = [];
-                    let currentSentence = "";
+                    // We need to process this carefully. The regex split might not be enough because we want to keep the verse number associated with the text following it.
+                    // Let's iterate through the text finding matches.
 
-                    const ABBREVIATIONS = new Set([
-                        "Mr.", "Mrs.", "Ms.", "Dr.", "Prof.", "Capt.", "Gen.", "Sen.", "Rep.", "Gov.", "St.", "Mt.", "Jr.", "Sr.", "Rev."
-                    ]);
+                    let remainingText = cleanText;
+                    const chunks: { text: string, verse?: string }[] = [];
 
-                    for (const seg of segments) {
-                        const s = seg.segment.trim();
-                        if (!s) continue;
+                    // Check if the paragraph STARTS with a verse number
+                    const startMatch = remainingText.match(/^\s*(\d+:\d+)\s/);
+                    let currentVerse = startMatch ? startMatch[1] : undefined;
+
+                    if (startMatch) {
+                        // Remove the starting verse number from text
+                        remainingText = remainingText.substring(startMatch[0].length);
+                    }
+
+                    while (remainingText.length > 0) {
+                        // Find the NEXT verse number in the remaining text
+                        const nextMatch = remainingText.match(/\s(\d+:\d+)\s/);
+
+                        if (nextMatch && nextMatch.index !== undefined) {
+                            // We found the start of the NEXT verse
+                            // The text up to this point belongs to the CURRENT verse (or no verse)
+                            const content = remainingText.substring(0, nextMatch.index).trim();
+
+                            if (content) {
+                                chunks.push({
+                                    text: content,
+                                    verse: currentVerse
+                                });
+                            }
+
+                            // Update current verse for the next iteration
+                            currentVerse = nextMatch[1];
+
+                            // Advance past the content AND the new verse number
+                            // match[0] includes the leading space, verse number, and trailing space
+                            remainingText = remainingText.substring(nextMatch.index + nextMatch[0].length);
+                        } else {
+                            // No more verses found, the rest belongs to the current verse
+                            if (remainingText.trim()) {
+                                chunks.push({
+                                    text: remainingText.trim(),
+                                    verse: currentVerse
+                                });
+                            }
+                            remainingText = "";
+                        }
+                    }
+
+                    // Now process each chunk into sentences
+                    for (const chunk of chunks) {
+                        if (!chunk.text) continue;
+
+                        const segments = Array.from(segmenter.segment(chunk.text));
+                        const mergedSentences: string[] = [];
+                        let currentSentence = "";
+
+                        const ABBREVIATIONS = new Set([
+                            "Mr.", "Mrs.", "Ms.", "Dr.", "Prof.", "Capt.", "Gen.", "Sen.", "Rep.", "Gov.", "St.", "Mt.", "Jr.", "Sr.", "Rev."
+                        ]);
+
+                        for (const seg of segments) {
+                            const s = seg.segment.trim();
+                            if (!s) continue;
+
+                            if (currentSentence) {
+                                currentSentence += " " + s;
+                            } else {
+                                currentSentence = s;
+                            }
+
+                            const words = currentSentence.split(' ');
+                            const lastWord = words[words.length - 1];
+
+                            if (ABBREVIATIONS.has(lastWord)) {
+                                continue;
+                            }
+
+                            mergedSentences.push(currentSentence);
+                            currentSentence = "";
+                        }
 
                         if (currentSentence) {
-                            currentSentence += " " + s;
-                        } else {
-                            currentSentence = s;
+                            mergedSentences.push(currentSentence);
                         }
 
-                        // Check if this segment ends with an abbreviation
-                        // We look at the last word of the current sentence
-                        const words = currentSentence.split(' ');
-                        const lastWord = words[words.length - 1];
-
-                        if (ABBREVIATIONS.has(lastWord)) {
-                            // Don't push yet, continue to next segment to merge
-                            continue;
+                        // Attach verse number to the FIRST sentence of the chunk only
+                        let isFirstSentenceOfChunk = true;
+                        for (const s of mergedSentences) {
+                            allSentences.push({
+                                text: s,
+                                pageIndex,
+                                verseNumber: isFirstSentenceOfChunk ? chunk.verse : undefined
+                            });
+                            isFirstSentenceOfChunk = false;
                         }
-
-                        // Also check for "Mr. " at the end of the raw segment string (if it kept whitespace)
-                        // But we trimmed 's', so checking lastWord is safer.
-
-                        mergedSentences.push(currentSentence);
-                        currentSentence = "";
-                    }
-
-                    // Push any remaining text
-                    if (currentSentence) {
-                        mergedSentences.push(currentSentence);
-                    }
-
-                    for (const s of mergedSentences) {
-                        allSentences.push({
-                            text: s,
-                            pageIndex
-                        });
                     }
                 }
             }
@@ -861,6 +931,60 @@ export default function BookReader({ bookId, initialBook }: BookReaderProps) {
                 )}
             </AnimatePresence>
 
+            {/* Chapters Modal */}
+            <AnimatePresence>
+                {showChapters && (
+                    <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4"
+                        onClick={() => setShowChapters(false)}
+                    >
+                        <motion.div
+                            initial={{ scale: 0.95, opacity: 0 }}
+                            animate={{ scale: 1, opacity: 1 }}
+                            exit={{ scale: 0.95, opacity: 0 }}
+                            className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[80vh] overflow-hidden flex flex-col"
+                            onClick={e => e.stopPropagation()}
+                        >
+                            <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50">
+                                <h3 className="font-serif font-bold text-xl">Books & Chapters</h3>
+                                <button onClick={() => setShowChapters(false)} className="p-2 hover:bg-gray-200 rounded-full">
+                                    <X className="w-5 h-5 opacity-60" />
+                                </button>
+                            </div>
+                            <div className="overflow-y-auto p-2">
+                                {chapters.length > 0 ? (
+                                    chapters.map((chapter, i) => (
+                                        <button
+                                            key={i}
+                                            onClick={() => {
+                                                setCurrentPage(chapter.pageIndex);
+                                                setShowChapters(false);
+                                                window.scrollTo({ top: 0, behavior: 'smooth' });
+                                            }}
+                                            className={`w-full text-left px-6 py-4 hover:bg-gray-50 rounded-lg transition-colors border-b border-gray-50 last:border-0
+                                                ${currentPage === chapter.pageIndex ? "bg-yellow-50 text-yellow-800 font-medium" : "text-gray-700"}
+                                            `}
+                                        >
+                                            <span className="text-sm opacity-50 mr-4 w-8 inline-block">
+                                                {chapter.pageIndex + 1}
+                                            </span>
+                                            {chapter.title}
+                                        </button>
+                                    ))
+                                ) : (
+                                    <div className="p-8 text-center text-gray-400">
+                                        No chapters found.
+                                    </div>
+                                )}
+                            </div>
+                        </motion.div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+
             {/* Navigation Bar */}
             <div className="fixed top-0 left-0 right-0 h-16 bg-[#fdfbf7]/90 backdrop-blur-sm border-b border-black/5 z-20 flex items-center justify-between px-4 md:px-6">
                 {/* Left: Back Button */}
@@ -994,6 +1118,11 @@ export default function BookReader({ bookId, initialBook }: BookReaderProps) {
                                     ${activeSentenceIndex === globalIndex ? "bg-yellow-200/50" : "hover:bg-black/5"}
                                 `}
                                 >
+                                    {sentence.verseNumber && (
+                                        <span className="text-xs text-gray-400 font-sans mr-2 select-none align-text-top">
+                                            {sentence.verseNumber}
+                                        </span>
+                                    )}
                                     {sentence.text}{" "}
                                 </span>
                             );
@@ -1023,12 +1152,20 @@ export default function BookReader({ bookId, initialBook }: BookReaderProps) {
                         </button>
 
                         <div className="flex flex-col items-center">
-                            <span className="font-serif font-bold text-lg">
-                                Page {currentPage + 1}
-                            </span>
-                            <span className="text-xs text-gray-400 uppercase tracking-wider">
-                                of {book.pages.length}
-                            </span>
+                            <button
+                                onClick={() => setShowChapters(true)}
+                                className="text-xs font-bold uppercase tracking-widest hover:text-yellow-600 transition-colors mb-1"
+                            >
+                                Books
+                            </button>
+                            <div className="flex flex-col items-center">
+                                <span className="font-serif font-bold text-lg">
+                                    Page {currentPage + 1}
+                                </span>
+                                <span className="text-xs text-gray-400 uppercase tracking-wider">
+                                    of {book.pages.length}
+                                </span>
+                            </div>
                         </div>
 
                         <button

@@ -108,6 +108,14 @@ export const EPUB_BOOKS: EpubBook[] = [
         coverColor: 'bg-lime-200',
         filePath: '/books/dyiigbcdsscm1gnj3y8iavay-0060-the-adventures-of-tom-sawyer-complete-mark-twain.epub',
         coverImage: '/covers/dyiigbcdsscm1gnj3y8iavay.jpg'
+    },
+    {
+        id: 'epub-13',
+        title: 'King James Bible',
+        author: 'King James',
+        coverColor: 'bg-yellow-900',
+        filePath: '/books/kjv-bible.epub',
+        coverImage: '' // Will be extracted or use default
     }
 ];
 

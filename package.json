@@ -10,7 +10,9 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.71.1",
+    "@clerk/nextjs": "^6.35.6",
     "@inworld/nodejs-sdk": "^1.17.0",
+    "@prisma/client": "^5.10.2",
     "@travisvn/edge-tts": "^1.0.2",
     "epubjs": "^0.3.93",
     "framer-motion": "^12.23.25",
@@ -29,6 +31,7 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.0.7",
+    "prisma": "^5.10.2",
     "tailwindcss": "^4",
     "typescript": "^5"
   }

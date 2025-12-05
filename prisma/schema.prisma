@@ -1,0 +1,26 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Book {
+  id          String   @id @default(cuid())
+  userId      String   // Clerk User ID
+  title       String
+  author      String
+  description String?  @db.Text
+  content     String   @db.Text // Full text content
+  coverImage  String?  @db.Text // Base64 or URL
+  coverColor  String   @default("bg-blue-500")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId])
+}

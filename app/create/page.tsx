@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { Send, Sparkles, BookOpen, Loader2 } from "lucide-react";
+import { SignedIn, SignedOut, SignInButton, UserButton, useUser } from "@clerk/nextjs";
 import { saveBookToDB } from "@/lib/db";
 
 interface Message {
@@ -20,7 +21,7 @@ export default function CreatePage() {
         {
             id: '1',
             role: 'assistant',
-            content: "Hello! I'm here to help you create a custom book. What kind of book would you like to create today? Tell me about the topic, genre, style, or any specific ideas you have in mind.",
+            content: "Hello! I'm here to help you create a custom book. To get started, what type of book would you like to create - fiction or non-fiction?",
             timestamp: new Date()
         }
     ]);
@@ -29,6 +30,8 @@ export default function CreatePage() {
     const [isGenerating, setIsGenerating] = useState(false);
     const [generatedBook, setGeneratedBook] = useState<any>(null);
     const [showPreview, setShowPreview] = useState(false);
+    const [generationProgress, setGenerationProgress] = useState(0);
+    const [generationStatus, setGenerationStatus] = useState("");
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
     const scrollToBottom = () => {
@@ -81,28 +84,73 @@ export default function CreatePage() {
 
     const handleGenerateBook = async () => {
         setIsGenerating(true);
+        setGenerationProgress(0);
+        setGenerationStatus("Creating book blueprint...");
+
         try {
+            // Step 1: Generate Structure
             const response = await fetch('/api/generate-book', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ messages })
             });
 
-            if (!response.ok) throw new Error('Failed to generate book');
+            if (!response.ok) throw new Error('Failed to generate book structure');
 
             const data = await response.json();
-            const bookData = JSON.parse(data.content);
+            const structure = JSON.parse(data.content);
 
-            setGeneratedBook(bookData);
+            // Step 2: Generate Chapters
+            const fullChapters = [];
+            const totalChapters = structure.chapters.length;
+
+            for (let i = 0; i < totalChapters; i++) {
+                const chapter = structure.chapters[i];
+                setGenerationStatus(`Writing Chapter ${i + 1} of ${totalChapters}: ${chapter.title}...`);
+
+                const chapterResponse = await fetch('/api/generate-chapter', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        title: structure.title,
+                        author: structure.author,
+                        description: structure.description,
+                        style: structure.style,
+                        chapterTitle: chapter.title,
+                        chapterDescription: chapter.plot_summary
+                    })
+                });
+
+                if (!chapterResponse.ok) throw new Error(`Failed to generate chapter ${i + 1}`);
+
+                const chapterData = await chapterResponse.json();
+                fullChapters.push({
+                    title: chapter.title,
+                    content: chapterData.content
+                });
+
+                setGenerationProgress(((i + 1) / totalChapters) * 100);
+            }
+
+            setGeneratedBook({
+                ...structure,
+                chapters: fullChapters
+            });
             setShowPreview(true);
 
-        } catch (error) {
+        } catch (error: any) {
             console.error('Generation error:', error);
-            alert('Failed to generate book. Please try again.');
+            alert(`Failed to generate book: ${error.message}`);
         } finally {
             setIsGenerating(false);
+            setGenerationStatus("");
+            setGenerationProgress(0);
         }
     };
+
+    const { user } = useUser();
+
+    // ... existing code ...
 
     const handleSaveBook = async () => {
         if (!generatedBook) return;
@@ -119,14 +167,15 @@ export default function CreatePage() {
                 content: fullContent,
                 pages: pages,
                 coverColor: "bg-purple-900",
-                createdAt: new Date()
+                createdAt: new Date(),
+                userId: user?.id // Associate with user
             };
 
             await saveBookToDB(newBook);
             router.push(`/reader/${newBook.id}`);
-        } catch (error) {
+        } catch (error: any) {
             console.error('Save error:', error);
-            alert('Failed to save book.');
+            alert(`Failed to save book: ${error.message}`);
         }
     };
 
@@ -149,8 +198,18 @@ export default function CreatePage() {
                     <div className="hidden md:flex items-center gap-8 text-sm text-white/80">
                         <Link href="/library" className="hover:text-white transition-colors">Library</Link>
                         <Link href="/create" className="text-white font-medium">Create</Link>
-                        <a href="#about" className="hover:text-white transition-colors">About</a>
-                        <a href="#contact" className="hover:text-white transition-colors">Contact</a>
+                        <SignedOut>
+                            <SignInButton>
+                                <button className="hover:text-white transition-colors">Sign In</button>
+                            </SignInButton>
+                        </SignedOut>
+                        <SignedIn>
+                            <div className="flex items-center gap-4">
+                                <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center overflow-hidden border border-white/20">
+                                    <UserButton afterSignOutUrl="/" />
+                                </div>
+                            </div>
+                        </SignedIn>
                     </div>
                 </div>
             </nav>
@@ -247,31 +306,47 @@ export default function CreatePage() {
                     </div>
                 </div>
 
-                {/* Generate Book Button (shows after some conversation) */}
-                {messages.length > 2 && (
+                {/* Generate Book Button or Progress Bar */}
+                {isGenerating ? (
                     <motion.div
                         initial={{ opacity: 0, y: 20 }}
                         animate={{ opacity: 1, y: 0 }}
-                        className="mt-4 flex justify-center"
+                        className="mt-4 w-full max-w-md mx-auto"
                     >
-                        <button
-                            onClick={handleGenerateBook}
-                            disabled={isGenerating || isLoading}
-                            className="bg-white text-black px-8 py-4 rounded-full font-medium hover:bg-gray-100 transition-all flex items-center gap-3 shadow-lg disabled:opacity-70 disabled:cursor-wait"
-                        >
-                            {isGenerating ? (
-                                <>
-                                    <Loader2 className="w-5 h-5 animate-spin" />
-                                    <span>Writing your book...</span>
-                                </>
-                            ) : (
-                                <>
-                                    <BookOpen className="w-5 h-5" />
-                                    <span>Generate Book</span>
-                                </>
-                            )}
-                        </button>
+                        <div className="bg-white/10 backdrop-blur-sm rounded-xl p-6 border border-white/20 shadow-xl">
+                            <div className="flex justify-between text-white mb-3 text-sm font-medium">
+                                <span className="flex items-center gap-2">
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                    {generationStatus}
+                                </span>
+                                <span>{Math.round(generationProgress)}%</span>
+                            </div>
+                            <div className="w-full bg-black/20 rounded-full h-2 overflow-hidden">
+                                <motion.div
+                                    className="bg-white h-full rounded-full"
+                                    initial={{ width: 0 }}
+                                    animate={{ width: `${generationProgress}%` }}
+                                    transition={{ duration: 0.5 }}
+                                />
+                            </div>
+                        </div>
                     </motion.div>
+                ) : (
+                    messages.length > 2 && (
+                        <motion.div
+                            initial={{ opacity: 0, y: 20 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            className="mt-4 flex justify-center"
+                        >
+                            <button
+                                onClick={handleGenerateBook}
+                                className="bg-white text-black px-8 py-4 rounded-full font-medium hover:bg-gray-100 transition-all flex items-center gap-3 shadow-lg hover:scale-105 active:scale-95"
+                            >
+                                <BookOpen className="w-5 h-5" />
+                                <span>Generate Book</span>
+                            </button>
+                        </motion.div>
+                    )
                 )}
             </div>
 

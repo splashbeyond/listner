@@ -4,6 +4,7 @@ import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { BookOpen, Star, Upload, Loader2 } from "lucide-react";
 import { motion } from "framer-motion";
+import { SignedIn, SignedOut, SignInButton, UserButton, useUser } from "@clerk/nextjs";
 import { renderPDFCover } from "@/lib/pdf-utils";
 import { saveBookToDB, getAllBooksFromDB, clearAllBooksFromDB } from "@/lib/db";
 import { EPUB_BOOKS, parseEpubFile, extractEpubCover } from "@/lib/epub-utils";
@@ -14,18 +15,23 @@ export default function LibraryPage() {
     const [isLoadingEpub, setIsLoadingEpub] = useState(true);
     const [uploadProgress, setUploadProgress] = useState(0);
 
+    const { user } = useUser();
+
     useEffect(() => {
         loadLibrary();
-    }, []);
+    }, [user]);
 
     const loadLibrary = async () => {
         setIsLoadingEpub(true);
 
         // Check if we have EPUB books already
-        const storedBooks = await getAllBooksFromDB();
-        const hasEpubBooks = storedBooks.some(book => book.id?.startsWith('epub-'));
+        const storedBooks = await getAllBooksFromDB(user?.id);
+        const storedEpubBooks = storedBooks.filter(book => book.id?.startsWith('epub-'));
 
-        if (hasEpubBooks) {
+        // If we have fewer stored books than static config, we need to reload/add the new ones
+        const hasAllEpubBooks = storedEpubBooks.length >= EPUB_BOOKS.length;
+
+        if (hasAllEpubBooks) {
             // Merge stored books with static data to ensure we get the new static covers
             const mergedBooks = storedBooks.map(storedBook => {
                 const staticBook = EPUB_BOOKS.find(b => b.id === storedBook.id);
@@ -36,15 +42,12 @@ export default function LibraryPage() {
                 return storedBook;
             });
 
-            // Show existing EPUB books (with updated covers)
             setBooks(mergedBooks);
             setIsLoadingEpub(false);
-
-            // Check for missing covers in background
             checkAndLoadCovers(mergedBooks);
         } else {
-            // Clear old books and load EPUB books
-            console.log('No EPUB books found, loading from files...');
+            // Reload/Add missing books
+            console.log('New EPUB books detected, reloading...');
             await loadEpubBooks();
         }
     };
@@ -88,11 +91,15 @@ export default function LibraryPage() {
         try {
             console.log('Loading EPUB books from public/books directory...');
 
-            // Get existing books to check for covers
-            const existingBooks = await getAllBooksFromDB();
+            // Get existing books to preserve custom ones and existing covers
+            const existingBooks = await getAllBooksFromDB(user?.id);
             const existingBookMap = new Map(existingBooks.map(b => [b.id, b]));
 
-            // Load all EPUB books
+            // Filter out old EPUB books from existing list to avoid duplicates/stale data
+            // But KEEP custom books (those not starting with 'epub-')
+            const customBooks = existingBooks.filter(b => !b.id.startsWith('epub-'));
+
+            // Load all EPUB books from static config
             const appBooks = EPUB_BOOKS.map(book => {
                 const existing = existingBookMap.get(book.id);
                 return {
@@ -103,17 +110,22 @@ export default function LibraryPage() {
                     // FORCE use of static cover if available, otherwise fall back to existing
                     coverImage: book.coverImage || existing?.coverImage,
                     filePath: book.filePath,
-                    content: existing?.content || '', // Preserve existing content
+                    content: existing?.content || '', // Preserve existing content if already parsed
                     pages: existing?.pages || [], // Preserve existing pages
+                    userId: user?.id // Ensure associated with user
                 };
             });
 
-            // Save to IndexedDB
+            // Combine new EPUBs with preserved custom books
+            const finalBookList = [...appBooks, ...customBooks];
+
+            // Save ONLY the EPUB books to DB (custom ones are already there)
+            // We iterate appBooks to update/insert them
             for (const book of appBooks) {
                 await saveBookToDB(book);
             }
 
-            setBooks(appBooks);
+            setBooks(finalBookList);
             setIsLoadingEpub(false); // Show books immediately
 
             // Lazily load covers
@@ -182,8 +194,18 @@ export default function LibraryPage() {
                     <div className="hidden md:flex items-center gap-8 text-sm text-white/80">
                         <Link href="/library" className="text-white font-medium">Library</Link>
                         <Link href="/create" className="hover:text-white transition-colors">Create</Link>
-                        <a href="#about" className="hover:text-white transition-colors">About</a>
-                        <a href="#contact" className="hover:text-white transition-colors">Contact</a>
+                        <SignedOut>
+                            <SignInButton>
+                                <button className="hover:text-white transition-colors">Sign In</button>
+                            </SignInButton>
+                        </SignedOut>
+                        <SignedIn>
+                            <div className="flex items-center gap-4">
+                                <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center overflow-hidden border border-white/20">
+                                    <UserButton afterSignOutUrl="/" />
+                                </div>
+                            </div>
+                        </SignedIn>
                     </div>
                 </div>
             </nav>

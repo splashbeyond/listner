@@ -24,8 +24,9 @@ export const openDB = (): Promise<IDBDatabase> => {
 };
 
 export const saveBookToDB = async (book: any): Promise<void> => {
+    // 1. Save to Local IndexedDB (Always)
     const db = await openDB();
-    return new Promise((resolve, reject) => {
+    await new Promise<void>((resolve, reject) => {
         const transaction = db.transaction(STORE_NAME, "readwrite");
         const store = transaction.objectStore(STORE_NAME);
         const request = store.put(book);
@@ -33,6 +34,19 @@ export const saveBookToDB = async (book: any): Promise<void> => {
         request.onsuccess = () => resolve();
         request.onerror = () => reject(request.error);
     });
+
+    // 2. Sync to Cloud if User is Logged In
+    if (book.userId) {
+        try {
+            await fetch('/api/books', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ book, userId: book.userId })
+            });
+        } catch (err) {
+            console.error("Failed to sync book to cloud:", err);
+        }
+    }
 };
 
 export const getBookFromDB = async (id: string): Promise<any> => {
@@ -47,9 +61,10 @@ export const getBookFromDB = async (id: string): Promise<any> => {
     });
 };
 
-export const getAllBooksFromDB = async (): Promise<any[]> => {
+export const getAllBooksFromDB = async (userId?: string): Promise<any[]> => {
+    // 1. Get Local Books
     const db = await openDB();
-    return new Promise((resolve, reject) => {
+    const localBooks = await new Promise<any[]>((resolve, reject) => {
         const transaction = db.transaction(STORE_NAME, "readonly");
         const store = transaction.objectStore(STORE_NAME);
         const request = store.getAll();
@@ -57,6 +72,27 @@ export const getAllBooksFromDB = async (): Promise<any[]> => {
         request.onsuccess = () => resolve(request.result);
         request.onerror = () => reject(request.error);
     });
+
+    // 2. If User is Logged In, Fetch Cloud Books and Merge
+    if (userId) {
+        try {
+            const response = await fetch(`/api/books?userId=${userId}`);
+            if (response.ok) {
+                const cloudBooks = await response.json();
+
+                // Merge strategies could vary, here we prioritize cloud or just concat unique
+                // For simplicity, let's just return cloud books + local books that aren't in cloud
+                const cloudIds = new Set(cloudBooks.map((b: any) => b.id));
+                const uniqueLocal = localBooks.filter(b => !cloudIds.has(b.id));
+
+                return [...cloudBooks, ...uniqueLocal];
+            }
+        } catch (err) {
+            console.error("Failed to fetch cloud books:", err);
+        }
+    }
+
+    return localBooks;
 };
 
 export const clearAllBooksFromDB = async (): Promise<void> => {
