@@ -27,6 +27,8 @@ export default function CreatePage() {
     const [input, setInput] = useState("");
     const [isLoading, setIsLoading] = useState(false);
     const [isGenerating, setIsGenerating] = useState(false);
+    const [generatedBook, setGeneratedBook] = useState<any>(null);
+    const [showPreview, setShowPreview] = useState(false);
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
     const scrollToBottom = () => {
@@ -91,28 +93,40 @@ export default function CreatePage() {
             const data = await response.json();
             const bookData = JSON.parse(data.content);
 
-            // Convert chapters to pages/content format
-            const fullContent = bookData.chapters.map((c: any) => `## ${c.title}\n\n${c.content}`).join('\n\n');
-            const pages = bookData.chapters.map((c: any) => c.content); // Or split by chapter
-
-            const newBook = {
-                id: `gen-${Date.now()}`,
-                title: bookData.title,
-                author: bookData.author || "AI & You",
-                content: fullContent,
-                pages: pages,
-                coverColor: "bg-purple-900", // Default dark cover
-                createdAt: new Date()
-            };
-
-            await saveBookToDB(newBook);
-            router.push(`/reader/${newBook.id}`);
+            setGeneratedBook(bookData);
+            setShowPreview(true);
 
         } catch (error) {
             console.error('Generation error:', error);
             alert('Failed to generate book. Please try again.');
         } finally {
             setIsGenerating(false);
+        }
+    };
+
+    const handleSaveBook = async () => {
+        if (!generatedBook) return;
+
+        try {
+            // Convert chapters to pages/content format
+            const fullContent = generatedBook.chapters.map((c: any) => `## ${c.title}\n\n${c.content}`).join('\n\n');
+            const pages = generatedBook.chapters.map((c: any) => c.content);
+
+            const newBook = {
+                id: `gen-${Date.now()}`,
+                title: generatedBook.title,
+                author: generatedBook.author || "AI & You",
+                content: fullContent,
+                pages: pages,
+                coverColor: "bg-purple-900",
+                createdAt: new Date()
+            };
+
+            await saveBookToDB(newBook);
+            router.push(`/reader/${newBook.id}`);
+        } catch (error) {
+            console.error('Save error:', error);
+            alert('Failed to save book.');
         }
     };
 
@@ -142,7 +156,7 @@ export default function CreatePage() {
             </nav>
 
             {/* Main Chat Container */}
-            <div className="flex-1 flex flex-col max-w-4xl w-full mx-auto px-6 pt-32 pb-8">
+            <div className={`flex-1 flex flex-col max-w-4xl w-full mx-auto px-6 pt-32 pb-8 transition-opacity duration-300 ${showPreview ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
                 {/* Header */}
                 <motion.div
                     initial={{ opacity: 0, y: 20 }}
@@ -260,6 +274,105 @@ export default function CreatePage() {
                     </motion.div>
                 )}
             </div>
+
+            {/* Preview Modal */}
+            <AnimatePresence>
+                {showPreview && generatedBook && (
+                    <motion.div
+                        initial={{ opacity: 0, scale: 0.95 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        exit={{ opacity: 0, scale: 0.95 }}
+                        className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm"
+                    >
+                        <div className="bg-white rounded-3xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col shadow-2xl">
+                            <div className="p-6 border-b flex justify-between items-center bg-gray-50">
+                                <h2 className="text-2xl font-serif font-bold text-gray-900">Preview & Edit</h2>
+                                <button
+                                    onClick={() => setShowPreview(false)}
+                                    className="text-gray-500 hover:text-gray-700"
+                                >
+                                    Close
+                                </button>
+                            </div>
+
+                            <div className="flex-1 overflow-y-auto p-8 space-y-6">
+                                <div className="grid grid-cols-2 gap-6">
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-2">Title</label>
+                                        <input
+                                            type="text"
+                                            value={generatedBook.title}
+                                            onChange={(e) => setGeneratedBook({ ...generatedBook, title: e.target.value })}
+                                            className="w-full p-3 border rounded-xl focus:ring-2 focus:ring-purple-500 outline-none text-black"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-2">Author</label>
+                                        <input
+                                            type="text"
+                                            value={generatedBook.author}
+                                            onChange={(e) => setGeneratedBook({ ...generatedBook, author: e.target.value })}
+                                            className="w-full p-3 border rounded-xl focus:ring-2 focus:ring-purple-500 outline-none text-black"
+                                        />
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-2">Description</label>
+                                    <textarea
+                                        value={generatedBook.description}
+                                        onChange={(e) => setGeneratedBook({ ...generatedBook, description: e.target.value })}
+                                        className="w-full p-3 border rounded-xl focus:ring-2 focus:ring-purple-500 outline-none min-h-[100px] text-black"
+                                    />
+                                </div>
+
+                                <div className="space-y-6">
+                                    <h3 className="text-xl font-bold text-gray-900 border-b pb-2">Chapters</h3>
+                                    {generatedBook.chapters.map((chapter: any, index: number) => (
+                                        <div key={index} className="bg-gray-50 p-6 rounded-2xl border">
+                                            <input
+                                                type="text"
+                                                value={chapter.title}
+                                                onChange={(e) => {
+                                                    const newChapters = [...generatedBook.chapters];
+                                                    newChapters[index].title = e.target.value;
+                                                    setGeneratedBook({ ...generatedBook, chapters: newChapters });
+                                                }}
+                                                className="w-full p-2 mb-4 bg-transparent font-bold text-lg border-b border-transparent focus:border-purple-500 outline-none text-black"
+                                            />
+                                            <textarea
+                                                value={chapter.content}
+                                                onChange={(e) => {
+                                                    const newChapters = [...generatedBook.chapters];
+                                                    newChapters[index].content = e.target.value;
+                                                    setGeneratedBook({ ...generatedBook, chapters: newChapters });
+                                                }}
+                                                className="w-full p-3 bg-white border rounded-xl focus:ring-2 focus:ring-purple-500 outline-none min-h-[300px] font-serif leading-relaxed text-gray-800"
+                                            />
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+
+                            <div className="p-6 border-t bg-gray-50 flex justify-end gap-4">
+                                <button
+                                    onClick={() => setShowPreview(false)}
+                                    className="px-6 py-3 rounded-xl font-medium text-gray-600 hover:bg-gray-200 transition-colors"
+                                >
+                                    Keep Editing Chat
+                                </button>
+                                <button
+                                    onClick={handleSaveBook}
+                                    className="px-8 py-3 rounded-xl font-medium bg-black text-white hover:bg-gray-800 transition-colors shadow-lg flex items-center gap-2"
+                                >
+                                    <BookOpen className="w-5 h-5" />
+                                    Save to Library
+                                </button>
+                            </div>
+                        </div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
         </div>
     );
 }
