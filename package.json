@@ -9,6 +9,7 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.71.1",
     "@inworld/nodejs-sdk": "^1.17.0",
     "@travisvn/edge-tts": "^1.0.2",
     "epubjs": "^0.3.93",
