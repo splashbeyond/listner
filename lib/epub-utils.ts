@@ -18,84 +18,96 @@ export const EPUB_BOOKS: EpubBook[] = [
         title: 'The Great Gatsby',
         author: 'F. Scott Fitzgerald',
         coverColor: 'bg-yellow-200',
-        filePath: '/books/slhm922daigq5gxuhjscrvil-0001-the-great-gatsby-f-scott-fitzgerald.epub'
+        filePath: '/books/slhm922daigq5gxuhjscrvil-0001-the-great-gatsby-f-scott-fitzgerald.epub',
+        coverImage: '/covers/slhm922daigq5gxuhjscrvil.jpg'
     },
     {
         id: 'epub-2',
         title: 'The Adventures of Huckleberry Finn',
         author: 'Mark Twain',
         coverColor: 'bg-blue-200',
-        filePath: '/books/j1h7f8zakusf7cm6knxws6cw-0009-the-adventures-of-huckleberry-finn-mark-twain.epub'
+        filePath: '/books/j1h7f8zakusf7cm6knxws6cw-0009-the-adventures-of-huckleberry-finn-mark-twain.epub',
+        coverImage: '/covers/j1h7f8zakusf7cm6knxws6cw.jpg'
     },
     {
         id: 'epub-3',
         title: 'A Tale of Two Cities',
         author: 'Charles Dickens',
         coverColor: 'bg-red-200',
-        filePath: '/books/t8mz691mhm6800qr63cg6lhp-0013-a-tale-of-two-cities-charles-dickens.epub'
+        filePath: '/books/t8mz691mhm6800qr63cg6lhp-0013-a-tale-of-two-cities-charles-dickens.epub',
+        coverImage: '/covers/t8mz691mhm6800qr63cg6lhp.jpg'
     },
     {
         id: 'epub-4',
         title: 'Anna Karenina',
         author: 'Leo Tolstoy',
         coverColor: 'bg-purple-200',
-        filePath: '/books/h3fwq1oo9sxt9eyh4q3u5wlx-0017-anna-karenina-leo-tolstoy.epub'
+        filePath: '/books/h3fwq1oo9sxt9eyh4q3u5wlx-0017-anna-karenina-leo-tolstoy.epub',
+        coverImage: '/covers/h3fwq1oo9sxt9eyh4q3u5wlx.jpg'
     },
     {
         id: 'epub-5',
         title: 'The Iliad',
         author: 'Homer',
         coverColor: 'bg-orange-200',
-        filePath: '/books/phh3t5lv8r1v17dssn0lcwuj-0023-the-iliad-homer.epub'
+        filePath: '/books/phh3t5lv8r1v17dssn0lcwuj-0023-the-iliad-homer.epub',
+        coverImage: '/covers/phh3t5lv8r1v17dssn0lcwuj.jpg'
     },
     {
         id: 'epub-6',
         title: 'Peter Pan',
         author: 'J. M. Barrie',
         coverColor: 'bg-green-200',
-        filePath: '/books/tj4oyeckqgizr93cx14nz7mj-0026-peter-pan-j-m-barrie.epub'
+        filePath: '/books/tj4oyeckqgizr93cx14nz7mj-0026-peter-pan-j-m-barrie.epub',
+        coverImage: '/covers/tj4oyeckqgizr93cx14nz7mj.jpg'
     },
     {
         id: 'epub-7',
         title: 'Meditations',
         author: 'Marcus Aurelius',
         coverColor: 'bg-indigo-200',
-        filePath: '/books/oe5bkjmpegmldniwbcy27p2w-0027-meditations-marcus-aurelius.epub'
+        filePath: '/books/oe5bkjmpegmldniwbcy27p2w-0027-meditations-marcus-aurelius.epub',
+        coverImage: '/covers/oe5bkjmpegmldniwbcy27p2w.jpg'
     },
     {
         id: 'epub-8',
         title: 'The Autobiography of Benjamin Franklin',
         author: 'Benjamin Franklin',
         coverColor: 'bg-pink-200',
-        filePath: '/books/fhsgomw0w01g6spzm19y8gv8-0030-the-autobiography-of-benjamin-franklin-benjamin-franklin-kepub.epub'
+        filePath: '/books/fhsgomw0w01g6spzm19y8gv8-0030-the-autobiography-of-benjamin-franklin-benjamin-franklin-kepub.epub',
+        coverImage: '/covers/fhsgomw0w01g6spzm19y8gv8.jpg'
     },
     {
         id: 'epub-9',
         title: "Gulliver's Travels",
         author: 'Jonathan Swift',
         coverColor: 'bg-teal-200',
-        filePath: '/books/bkbp9nxokxzv6nj690ebnxtu-0041-gullivers-travels-jonathan-swift.epub'
+        filePath: '/books/bkbp9nxokxzv6nj690ebnxtu-0041-gullivers-travels-jonathan-swift.epub',
+        coverImage: '/covers/bkbp9nxokxzv6nj690ebnxtu.jpg'
     },
     {
         id: 'epub-10',
         title: 'Don Quixote',
         author: 'Miguel de Cervantes',
         coverColor: 'bg-amber-200',
-        filePath: '/books/cnzrj4sazlgn6spcwfw5l0az-0046-don-quixote-miguel-de-cervantes.epub'
+        filePath: '/books/cnzrj4sazlgn6spcwfw5l0az-0046-don-quixote-miguel-de-cervantes.epub',
+        coverImage: '/covers/cnzrj4sazlgn6spcwfw5l0az.jpg'
     },
     {
         id: 'epub-11',
         title: 'Heart of Darkness',
         author: 'Joseph Conrad',
         coverColor: 'bg-gray-300',
-        filePath: '/books/maixklghgsfyytj9jzqgdbys-0053-heart-of-darkness-joseph-conrad.epub'
+        filePath: '/books/maixklghgsfyytj9jzqgdbys-0053-heart-of-darkness-joseph-conrad.epub',
+        coverImage: '/covers/maixklghgsfyytj9jzqgdbys.jpg'
     },
     {
         id: 'epub-12',
         title: 'The Adventures of Tom Sawyer',
         author: 'Mark Twain',
         coverColor: 'bg-lime-200',
-        filePath: '/books/dyiigbcdsscm1gnj3y8iavay-0060-the-adventures-of-tom-sawyer-complete-mark-twain.epub'
+        filePath: '/books/dyiigbcdsscm1gnj3y8iavay-0060-the-adventures-of-tom-sawyer-complete-mark-twain.epub',
+        coverImage: '/covers/dyiigbcdsscm1gnj3y8iavay.jpg'
     }
 ];
 
