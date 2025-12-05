@@ -2,35 +2,69 @@
 
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
-import { BookOpen, Star, Upload } from "lucide-react";
+import { BookOpen, Star, Upload, Loader2 } from "lucide-react";
 import { motion } from "framer-motion";
 import { renderPDFCover } from "@/lib/pdf-utils";
-import { saveBookToDB, getAllBooksFromDB } from "@/lib/db";
-
-// Mock Data for Books
-const INITIAL_BOOKS = [
-    { id: "1", title: "The Great Gatsby", author: "F. Scott Fitzgerald", coverColor: "bg-blue-200" },
-    { id: "2", title: "1984", author: "George Orwell", coverColor: "bg-red-200" },
-    { id: "3", title: "To Kill a Mockingbird", author: "Harper Lee", coverColor: "bg-green-200" },
-    { id: "4", title: "Pride and Prejudice", author: "Jane Austen", coverColor: "bg-pink-200" },
-    { id: "5", title: "The Catcher in the Rye", author: "J.D. Salinger", coverColor: "bg-yellow-200" },
-    { id: "6", title: "Moby Dick", author: "Herman Melville", coverColor: "bg-indigo-200" },
-];
+import { saveBookToDB, getAllBooksFromDB, clearAllBooksFromDB } from "@/lib/db";
+import { fetchPopularBooks, POPULAR_CLASSICS, fetchBookById, convertToAppBook, fetchBookText } from "@/lib/gutenberg";
 
 export default function LibraryPage() {
-    const [books, setBooks] = useState(INITIAL_BOOKS);
+    const [books, setBooks] = useState<any[]>([]);
     const [isUploading, setIsUploading] = useState(false);
+    const [isLoadingGutenberg, setIsLoadingGutenberg] = useState(true);
     const [uploadProgress, setUploadProgress] = useState(0);
 
     useEffect(() => {
-        const loadBooks = async () => {
-            const storedBooks = await getAllBooksFromDB();
-            if (storedBooks.length > 0) {
-                setBooks(storedBooks);
-            }
-        };
-        loadBooks();
+        loadLibrary();
     }, []);
+
+    const loadLibrary = async () => {
+        setIsLoadingGutenberg(true);
+
+        // Check if we have Gutenberg books already
+        const storedBooks = await getAllBooksFromDB();
+        const hasGutenbergBooks = storedBooks.some(book => book.id?.startsWith('gutenberg-'));
+
+        if (hasGutenbergBooks) {
+            // Show existing Gutenberg books
+            setBooks(storedBooks);
+            setIsLoadingGutenberg(false);
+        } else {
+            // Clear old books and fetch Gutenberg
+            console.log('No Gutenberg books found, fetching fresh...');
+            await loadGutenbergBooks();
+        }
+    };
+
+    const loadGutenbergBooks = async () => {
+        try {
+            console.log('Fetching popular Gutenberg books...');
+
+            // Clear any existing books first
+            await clearAllBooksFromDB();
+
+            // Fetch a curated selection of popular classics
+            const bookPromises = POPULAR_CLASSICS.slice(0, 12).map(id => fetchBookById(id));
+            const gutenbergBooks = await Promise.all(bookPromises);
+
+            // Convert to app format (without content initially for faster loading)
+            const appBooks = gutenbergBooks
+                .filter(book => book !== null)
+                .map(book => convertToAppBook(book!));
+
+            // Save to IndexedDB
+            for (const book of appBooks) {
+                await saveBookToDB(book);
+            }
+
+            setBooks(appBooks);
+            console.log(`Loaded ${appBooks.length} Gutenberg books`);
+        } catch (error) {
+            console.error('Failed to load Gutenberg books:', error);
+        } finally {
+            setIsLoadingGutenberg(false);
+        }
+    };
 
     const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
@@ -88,6 +122,7 @@ export default function LibraryPage() {
 
                     <div className="hidden md:flex items-center gap-8 text-sm text-white/80">
                         <Link href="/library" className="text-white font-medium">Library</Link>
+                        <Link href="/create" className="hover:text-white transition-colors">Create</Link>
                         <a href="#about" className="hover:text-white transition-colors">About</a>
                         <a href="#contact" className="hover:text-white transition-colors">Contact</a>
                     </div>
@@ -116,42 +151,59 @@ export default function LibraryPage() {
                     </label>
                 </motion.div>
 
-                {/* Books Grid */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-8">
-                    {books.map((book: any, index: number) => (
-                        <motion.div
-                            key={book.id}
-                            initial={{ opacity: 0, scale: 0.9 }}
-                            animate={{ opacity: 1, scale: 1 }}
-                            transition={{ duration: 0.5, delay: index * 0.05 }}
-                        >
-                            <Link href={`/reader/${book.id}`} className="group block">
-                                <div className={`aspect-[2/3] w-full rounded-lg shadow-lg ${book.coverColor} relative overflow-hidden transition-all duration-300 group-hover:-translate-y-2 group-hover:shadow-2xl`}>
-                                    {book.coverImage ? (
-                                        <img src={book.coverImage} alt={book.title} className="absolute inset-0 w-full h-full object-cover" />
-                                    ) : (
-                                        <>
-                                            <div className="absolute left-0 top-0 bottom-0 w-4 bg-black/10"></div>
-                                            <div className="p-6 flex flex-col h-full justify-between relative z-10">
-                                                <div className="text-right">
-                                                    <Star className="w-5 h-5 text-black/20 inline-block" />
-                                                </div>
-                                                <div>
-                                                    <h3 className="text-2xl font-serif text-black/80 leading-tight mb-1 line-clamp-3">{book.title}</h3>
-                                                    <p className="text-sm text-black/50 uppercase tracking-widest line-clamp-1">{book.author}</p>
-                                                </div>
-                                            </div>
-                                        </>
-                                    )}
+                {/* Loading State */}
+                {isLoadingGutenberg && books.length === 0 && (
+                    <div className="flex flex-col items-center justify-center py-20">
+                        <Loader2 className="w-12 h-12 text-white animate-spin mb-4" />
+                        <p className="text-white/60 text-lg">Loading classic books from Project Gutenberg...</p>
+                    </div>
+                )}
 
-                                    <div className="absolute inset-0 bg-white/10 backdrop-blur-[2px] opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center z-20">
-                                        <span className="bg-white/90 text-black px-4 py-2 rounded-full text-sm font-medium">Read Now</span>
+                {/* Empty State */}
+                {!isLoadingGutenberg && books.length === 0 && (
+                    <div className="text-center py-20">
+                        <p className="text-white/60 text-lg">No books in your library yet. Upload a PDF to get started!</p>
+                    </div>
+                )}
+
+                {/* Books Grid */}
+                {books.length > 0 && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-8">
+                        {books.map((book: any, index: number) => (
+                            <motion.div
+                                key={book.id}
+                                initial={{ opacity: 0, scale: 0.9 }}
+                                animate={{ opacity: 1, scale: 1 }}
+                                transition={{ duration: 0.5, delay: index * 0.05 }}
+                            >
+                                <Link href={`/reader/${book.id}`} className="group block">
+                                    <div className={`aspect-[2/3] w-full rounded-lg shadow-lg ${book.coverColor} relative overflow-hidden transition-all duration-300 group-hover:-translate-y-2 group-hover:shadow-2xl`}>
+                                        {book.coverImage ? (
+                                            <img src={book.coverImage} alt={book.title} className="absolute inset-0 w-full h-full object-cover" />
+                                        ) : (
+                                            <>
+                                                <div className="absolute left-0 top-0 bottom-0 w-4 bg-black/10"></div>
+                                                <div className="p-6 flex flex-col h-full justify-between relative z-10">
+                                                    <div className="text-right">
+                                                        <Star className="w-5 h-5 text-black/20 inline-block" />
+                                                    </div>
+                                                    <div>
+                                                        <h3 className="text-2xl font-serif text-black/80 leading-tight mb-1 line-clamp-3">{book.title}</h3>
+                                                        <p className="text-sm text-black/50 uppercase tracking-widest line-clamp-1">{book.author}</p>
+                                                    </div>
+                                                </div>
+                                            </>
+                                        )}
+
+                                        <div className="absolute inset-0 bg-white/10 backdrop-blur-[2px] opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center z-20">
+                                            <span className="bg-white/90 text-black px-4 py-2 rounded-full text-sm font-medium">Read Now</span>
+                                        </div>
                                     </div>
-                                </div>
-                            </Link>
-                        </motion.div>
-                    ))}
-                </div>
+                                </Link>
+                            </motion.div>
+                        ))}
+                    </div>
+                )}
             </div>
         </div>
     );

@@ -6,7 +6,8 @@ import { Play, Pause, ArrowLeft, Sparkles, X, MessageSquare, Settings, Maximize2
 import Link from "next/link";
 import ReviewPanel from "./ReviewPanel";
 import TTSControls, { VOICES } from "./TTSControls";
-import { getBookFromDB } from "@/lib/db";
+import { getBookFromDB, saveBookToDB } from "@/lib/db";
+import { fetchBookById, fetchBookText } from "@/lib/gutenberg";
 
 interface BookData {
     title: string;
@@ -76,6 +77,36 @@ export default function BookReader({ bookId, initialBook }: BookReaderProps) {
                     }
 
                     if (storedBook) {
+                        // Check if it's a Gutenberg book without content
+                        if (bookId.startsWith('gutenberg-') && (!storedBook.content || storedBook.content.length === 0)) {
+                            try {
+                                console.log('Fetching Gutenberg book content...');
+
+                                // Extract Gutenberg ID from bookId (e.g., "gutenberg-1342" -> 1342)
+                                const gutenbergId = parseInt(bookId.replace('gutenberg-', ''));
+
+                                // Fetch the full book data from Gutenberg
+                                const gutenbergBook = await fetchBookById(gutenbergId);
+
+                                if (gutenbergBook) {
+                                    // Fetch the text content
+                                    const content = await fetchBookText(gutenbergBook);
+
+                                    // Update the book with content
+                                    storedBook.content = content;
+
+                                    // Save back to DB for next time
+                                    await saveBookToDB(storedBook);
+
+                                    console.log('Successfully loaded book content');
+                                }
+                            } catch (contentError) {
+                                console.error('Failed to fetch book content:', contentError);
+                                // Set a placeholder message so the book still loads
+                                storedBook.content = `Unable to load this book. The book "${storedBook.title}" may not be available in a readable format from Project Gutenberg. Please try another book.`;
+                            }
+                        }
+
                         setBook(storedBook);
                         processBookContent(storedBook);
                     } else {
