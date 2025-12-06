@@ -37,6 +37,7 @@ export async function POST(req: NextRequest) {
 }
 
 async function generateWithPerplexity(bookTitle: string, chapterTitle: string, chapterDesc: string, style: string) {
+    console.log("Perplexity Key exists:", !!process.env.OPENROUTER_API_KEY);
     if (!process.env.OPENROUTER_API_KEY) {
         throw new Error("Missing OpenRouter API Key for Perplexity");
     }
@@ -64,7 +65,7 @@ REQUIREMENTS:
             "X-Title": "Listener App"
         },
         body: JSON.stringify({
-            model: "perplexity/llama-3.1-sonar-huge-128k-online",
+            model: "perplexity/sonar-reasoning",
             messages: [
                 { role: "user", content: prompt }
             ]
@@ -102,7 +103,7 @@ Provide a bulleted list of factual information found online.`;
             "X-Title": "Listener App"
         },
         body: JSON.stringify({
-            model: "perplexity/llama-3.1-sonar-huge-128k-online",
+            model: "perplexity/sonar-reasoning",
             messages: [
                 { role: "user", content: prompt }
             ]

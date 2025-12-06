@@ -125,6 +125,7 @@ export default function CreatePage() {
                         author: structure.author,
                         description: structure.description,
                         style: structure.style,
+                        genre: structure.genre,
                         chapterTitle: chapter.title,
                         chapterDescription: chapter.plot_summary
                     })
@@ -177,10 +178,17 @@ export default function CreatePage() {
                 pages: pages,
                 coverColor: "bg-purple-900",
                 createdAt: new Date(),
-                userId: user?.id // Associate with user
+                userId: user?.id, // Associate with user
+                lastSentenceIndex: 0,
+                currentPage: 0
             };
 
+            console.log("Saving book with ID:", newBook.id);
             await saveBookToDB(newBook);
+
+            // Small delay to ensure DB persistence
+            await new Promise(resolve => setTimeout(resolve, 100));
+
             router.push(`/reader/${newBook.id}`);
         } catch (error: any) {
             console.error('Save error:', error);

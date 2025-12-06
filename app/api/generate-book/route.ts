@@ -42,7 +42,8 @@ IMPORTANT:
 2. Create a comprehensive list of chapters (at least 5-10 unless specified otherwise).
 3. The "plot_summary" for each chapter must be detailed enough to guide the writing of a full chapter (2-3 sentences minimum).
 4. Do NOT write the full chapter content yet.
-5. Ensure the structure matches the user's request (genre, length, etc.).`;
+5. Ensure the structure matches the user's request (genre, length, etc.).
+6. IMPORTANT: Ensure the JSON is valid and does NOT have trailing commas.`;
 
         const response = await anthropic.messages.create({
             model: "claude-3-5-haiku-latest",
@@ -66,6 +67,18 @@ IMPORTANT:
 
         if (firstBrace !== -1 && lastBrace !== -1) {
             textContent = textContent.substring(firstBrace, lastBrace + 1);
+        } else {
+            console.error("Failed to find JSON braces in response:", textContent);
+            throw new Error("Invalid response format from AI");
+        }
+
+        // Validate JSON before returning
+        try {
+            JSON.parse(textContent);
+        } catch (e) {
+            console.error("Invalid JSON generated:", textContent);
+            // Attempt to fix common JSON errors if needed, or just throw
+            throw new Error("AI generated invalid JSON structure");
         }
 
         return NextResponse.json({

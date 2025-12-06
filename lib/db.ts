@@ -37,15 +37,12 @@ export const saveBookToDB = async (book: any): Promise<void> => {
 
     // 2. Sync to Cloud if User is Logged In
     if (book.userId) {
-        try {
-            await fetch('/api/books', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ book, userId: book.userId })
-            });
-        } catch (err) {
-            console.error("Failed to sync book to cloud:", err);
-        }
+        // Don't await cloud sync to keep UI responsive, just fire and forget (or log error)
+        fetch('/api/books', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ book, userId: book.userId })
+        }).catch(err => console.error("Failed to sync book to cloud:", err));
     }
 };
 
