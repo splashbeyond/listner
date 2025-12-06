@@ -3,8 +3,10 @@
 import { motion } from "framer-motion";
 import Link from "next/link";
 import { BookOpen, Headphones, Sparkles, ArrowRight } from "lucide-react";
+import { useUser, SignInButton } from "@clerk/nextjs";
 
 export default function HeroSection() {
+    const { isSignedIn, isLoaded } = useUser();
     return (
         <div className="relative w-full min-h-screen flex flex-col">
             {/* Hero Section */}
@@ -49,13 +51,22 @@ export default function HeroSection() {
                             <span>Start Reading Free</span>
                             <ArrowRight className="w-5 h-5 transition-transform group-hover:translate-x-1" />
                         </Link>
-                        <Link
-                            href="/create"
-                            className="group inline-flex items-center gap-3 px-8 py-4 bg-white/10 text-white rounded-full hover:bg-white/20 transition-all duration-300 backdrop-blur-sm font-medium text-lg border border-white/20"
-                        >
-                            <Sparkles className="w-5 h-5" />
-                            <span>Create Your First Book</span>
-                        </Link>
+                        {isLoaded && !isSignedIn ? (
+                            <SignInButton mode="modal">
+                                <button className="group inline-flex items-center gap-3 px-8 py-4 bg-white/10 text-white rounded-full hover:bg-white/20 transition-all duration-300 backdrop-blur-sm font-medium text-lg border border-white/20">
+                                    <Sparkles className="w-5 h-5" />
+                                    <span>Create Your First Book</span>
+                                </button>
+                            </SignInButton>
+                        ) : (
+                            <Link
+                                href="/create"
+                                className="group inline-flex items-center gap-3 px-8 py-4 bg-white/10 text-white rounded-full hover:bg-white/20 transition-all duration-300 backdrop-blur-sm font-medium text-lg border border-white/20"
+                            >
+                                <Sparkles className="w-5 h-5" />
+                                <span>Create Your First Book</span>
+                            </Link>
+                        )}
                     </motion.div>
                 </motion.div>
 

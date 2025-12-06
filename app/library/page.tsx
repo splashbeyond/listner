@@ -2,9 +2,10 @@
 
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
-import { BookOpen, Star, Upload, Loader2 } from "lucide-react";
+import { BookOpen, Star, Upload, Loader2, Bookmark } from "lucide-react";
 import { motion } from "framer-motion";
-import { SignedIn, SignedOut, SignInButton, UserButton, useUser } from "@clerk/nextjs";
+import { useUser } from "@clerk/nextjs";
+import Navbar from "@/components/Navbar";
 import { renderPDFCover } from "@/lib/pdf-utils";
 import { saveBookToDB, getAllBooksFromDB, clearAllBooksFromDB } from "@/lib/db";
 import { EPUB_BOOKS, parseEpubFile, extractEpubCover } from "@/lib/epub-utils";
@@ -185,30 +186,7 @@ export default function LibraryPage() {
     return (
         <div className="min-h-screen w-full relative flex flex-col items-center bg-gradient-to-b from-[#2d1810] via-[#1a2332] to-[#0f1419]">
             {/* Fixed Navigation Bar */}
-            <nav className="fixed top-0 left-0 right-0 z-50 bg-gradient-to-b from-[#2d1810]/95 to-transparent backdrop-blur-sm">
-                <div className="max-w-7xl mx-auto px-6 py-6 flex items-center justify-between">
-                    <Link href="/" className="text-white text-xl font-bold tracking-wider uppercase">
-                        Listener
-                    </Link>
-
-                    <div className="hidden md:flex items-center gap-8 text-sm text-white/80">
-                        <Link href="/library" className="text-white font-medium">Library</Link>
-                        <Link href="/create" className="hover:text-white transition-colors">Create</Link>
-                        <SignedOut>
-                            <SignInButton>
-                                <button className="hover:text-white transition-colors">Sign In</button>
-                            </SignInButton>
-                        </SignedOut>
-                        <SignedIn>
-                            <div className="flex items-center gap-4">
-                                <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center overflow-hidden border border-white/20">
-                                    <UserButton afterSignOutUrl="/" />
-                                </div>
-                            </div>
-                        </SignedIn>
-                    </div>
-                </div>
-            </nav>
+            <Navbar />
 
             {/* Main Content */}
             <div className="w-full max-w-7xl px-6 pt-32 pb-24">
@@ -276,8 +254,19 @@ export default function LibraryPage() {
                                             </>
                                         )}
 
+                                        {/* Bookmark Overlay if progress exists */}
+                                        {((book.currentPage && book.currentPage > 0) || (book.lastSentenceIndex && book.lastSentenceIndex > 0)) && (
+                                            <div className="absolute top-0 right-4 z-20">
+                                                <div className="relative">
+                                                    <Bookmark className="w-8 h-8 text-red-600 fill-red-600 drop-shadow-md" />
+                                                </div>
+                                            </div>
+                                        )}
+
                                         <div className="absolute inset-0 bg-white/10 backdrop-blur-[2px] opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center z-20">
-                                            <span className="bg-white/90 text-black px-4 py-2 rounded-full text-sm font-medium">Read Now</span>
+                                            <span className="bg-white/90 text-black px-4 py-2 rounded-full text-sm font-medium">
+                                                {((book.currentPage && book.currentPage > 0) || (book.lastSentenceIndex && book.lastSentenceIndex > 0)) ? "Continue Reading" : "Read Now"}
+                                            </span>
                                         </div>
                                     </div>
                                 </Link>

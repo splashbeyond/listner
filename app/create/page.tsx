@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { Send, Sparkles, BookOpen, Loader2 } from "lucide-react";
 import { SignedIn, SignedOut, SignInButton, UserButton, useUser } from "@clerk/nextjs";
+import Navbar from "@/components/Navbar";
 import { saveBookToDB } from "@/lib/db";
 
 interface Message {
@@ -33,6 +34,14 @@ export default function CreatePage() {
     const [generationProgress, setGenerationProgress] = useState(0);
     const [generationStatus, setGenerationStatus] = useState("");
     const messagesEndRef = useRef<HTMLDivElement>(null);
+
+    const { user, isLoaded, isSignedIn } = useUser();
+
+    useEffect(() => {
+        if (isLoaded && !isSignedIn) {
+            router.push("/");
+        }
+    }, [isLoaded, isSignedIn, router]);
 
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -148,7 +157,7 @@ export default function CreatePage() {
         }
     };
 
-    const { user } = useUser();
+
 
     // ... existing code ...
 
@@ -189,30 +198,7 @@ export default function CreatePage() {
     return (
         <div className="min-h-screen w-full relative flex flex-col bg-gradient-to-b from-[#2d1810] via-[#1a2332] to-[#0f1419]">
             {/* Fixed Navigation Bar */}
-            <nav className="fixed top-0 left-0 right-0 z-50 bg-gradient-to-b from-[#2d1810]/95 to-transparent backdrop-blur-sm">
-                <div className="max-w-7xl mx-auto px-6 py-6 flex items-center justify-between">
-                    <Link href="/" className="text-white text-xl font-bold tracking-wider uppercase">
-                        Listener
-                    </Link>
-
-                    <div className="hidden md:flex items-center gap-8 text-sm text-white/80">
-                        <Link href="/library" className="hover:text-white transition-colors">Library</Link>
-                        <Link href="/create" className="text-white font-medium">Create</Link>
-                        <SignedOut>
-                            <SignInButton>
-                                <button className="hover:text-white transition-colors">Sign In</button>
-                            </SignInButton>
-                        </SignedOut>
-                        <SignedIn>
-                            <div className="flex items-center gap-4">
-                                <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center overflow-hidden border border-white/20">
-                                    <UserButton afterSignOutUrl="/" />
-                                </div>
-                            </div>
-                        </SignedIn>
-                    </div>
-                </div>
-            </nav>
+            <Navbar />
 
             {/* Main Chat Container */}
             <div className={`flex-1 flex flex-col max-w-4xl w-full mx-auto px-6 pt-32 pb-8 transition-opacity duration-300 ${showPreview ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
