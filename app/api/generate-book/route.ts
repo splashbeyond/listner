@@ -24,6 +24,7 @@ The output MUST be valid JSON with the following structure:
     "author": "The Author",
     "description": "A short summary",
     "style": "The agreed upon style/tone",
+    "genre": "fiction | non-fiction | hybrid",
     "chapters": [
         {
             "title": "Chapter 1: The Beginning",
@@ -34,10 +35,14 @@ The output MUST be valid JSON with the following structure:
 }
 
 IMPORTANT:
-1. Create a comprehensive list of chapters (at least 5-10 unless specified otherwise).
-2. The "plot_summary" for each chapter must be detailed enough to guide the writing of a full chapter (2-3 sentences minimum).
-3. Do NOT write the full chapter content yet.
-4. Ensure the structure matches the user's request (genre, length, etc.).`;
+1. Analyze the user's request to determine the "genre":
+   - "fiction": Invented stories, novels.
+   - "non-fiction": Factual books, history, science, biographies.
+   - "hybrid": A mix, e.g., historical fiction, or a story that teaches real facts.
+2. Create a comprehensive list of chapters (at least 5-10 unless specified otherwise).
+3. The "plot_summary" for each chapter must be detailed enough to guide the writing of a full chapter (2-3 sentences minimum).
+4. Do NOT write the full chapter content yet.
+5. Ensure the structure matches the user's request (genre, length, etc.).`;
 
         const response = await anthropic.messages.create({
             model: "claude-3-5-haiku-latest",

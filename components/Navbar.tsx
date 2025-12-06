@@ -35,7 +35,13 @@ export default function Navbar() {
                 {/* Desktop Menu */}
                 <div className="hidden md:flex items-center gap-8 text-sm text-white/80">
                     <Link href="/library" className="hover:text-white transition-colors">Library</Link>
-                    <Link href="/create" className="hover:text-white transition-colors">Create</Link>
+                    {isSignedIn ? (
+                        <Link href="/create" className="hover:text-white transition-colors">Create</Link>
+                    ) : (
+                        <SignInButton mode="modal">
+                            <button className="hover:text-white transition-colors">Create</button>
+                        </SignInButton>
+                    )}
 
                     {!isLoaded ? (
                         <div className="w-20 h-8 bg-white/5 rounded animate-pulse"></div>
@@ -87,14 +93,26 @@ export default function Navbar() {
                                 <span>Library</span>
                             </Link>
 
-                            <Link
-                                href="/create"
-                                className="flex items-center gap-4 text-2xl font-serif text-white/90 hover:text-white p-4 rounded-2xl hover:bg-white/5 transition-all"
-                                onClick={() => setIsMobileMenuOpen(false)}
-                            >
-                                <Plus className="w-6 h-6 text-green-400" />
-                                <span>Create Story</span>
-                            </Link>
+                            {isSignedIn ? (
+                                <Link
+                                    href="/create"
+                                    className="flex items-center gap-4 text-2xl font-serif text-white/90 hover:text-white p-4 rounded-2xl hover:bg-white/5 transition-all"
+                                    onClick={() => setIsMobileMenuOpen(false)}
+                                >
+                                    <Plus className="w-6 h-6 text-green-400" />
+                                    <span>Create Story</span>
+                                </Link>
+                            ) : (
+                                <SignInButton mode="modal">
+                                    <button
+                                        className="w-full flex items-center gap-4 text-2xl font-serif text-white/90 hover:text-white p-4 rounded-2xl hover:bg-white/5 transition-all text-left"
+                                        onClick={() => setIsMobileMenuOpen(false)}
+                                    >
+                                        <Plus className="w-6 h-6 text-green-400" />
+                                        <span>Create Story</span>
+                                    </button>
+                                </SignInButton>
+                            )}
                         </div>
 
                         {/* Divider */}
